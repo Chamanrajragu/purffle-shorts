@@ -1,0 +1,781 @@
+import os
+import random
+import time
+import logging
+import pickle
+import openai
+import requests
+import codecs
+import concurrent.futures
+import numpy as np
+from PIL import Image
+from moviepy.editor import (
+    VideoFileClip,
+    AudioFileClip,
+    CompositeVideoClip,
+    TextClip,
+    concatenate_videoclips,
+    CompositeAudioClip
+)
+from moviepy.video.fx.fadein import fadein
+from moviepy.video.fx.fadeout import fadeout
+from moviepy.audio.fx.all import audio_loop
+import textwrap
+from moviepy.config import change_settings
+
+# ============================ Coqui TTS Import ============================
+# Install via: pip install TTS
+from TTS.api import TTS  # Main class for generating speech
+
+# ============================ Google API Imports ============================
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+
+# ------------------ Monkey-patch for Pillow 10+ ------------------
+if not hasattr(Image, 'ANTIALIAS'):
+    Image.ANTIALIAS = Image.Resampling.LANCZOS
+
+# ============================ Configuration ============================
+change_settings({
+    "IMAGEMAGICK_BINARY": r"C:\\Program Files\\ImageMagick-7.1.1-Q16-HDRI\\magick.exe"
+})  # Update path if necessary
+
+LOG_FILE = 'youtube_shorts_automation.log'
+
+class UTF8StreamHandler(logging.StreamHandler):
+    def __init__(self, stream=None):
+        super().__init__(stream)
+        self.stream = codecs.getwriter("utf-8")(self.stream.buffer)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+        UTF8StreamHandler()
+    ]
+)
+
+from dotenv import load_dotenv
+load_dotenv()
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
+PIXABAY_API_KEY = os.getenv("PIXABAY_API_KEY")
+if not OPENAI_API_KEY:
+    logging.error("OpenAI API key not set.")
+    exit(1)
+openai.api_key = OPENAI_API_KEY
+
+if not PEXELS_API_KEY:
+    logging.error("Pexels API key not set.")
+    exit(1)
+
+if not PIXABAY_API_KEY:
+    logging.error("Pixabay API key not set.")
+    exit(1)
+
+SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
+
+OUTPUT_FOLDER = 'output_videos/'
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+# ============================ Categories and Static Trending Hashtags ============================
+CATEGORIES = [
+    "Mystery", "horror Story telling", "history of Game", "informative", "science",
+    "interesting people", "trending news", "finance tips",
+    "interesting facts", "psychology", "horror stories",
+    "space exploration", "Cars", "history mysteries", "Money",
+    "True Crime", "Tech Trends", "Motivational", "Self-Improvement",
+    "History in a Nutshell", "Curiosities", "Fun Facts"
+]
+
+TRENDING_HASHTAGS = [
+    "#YouTubeShortsChallenge", "#shorts", "#trending", "#viral",
+    "#explore", "#foryou", "#YouTubeShorts", "#entertainment",
+    "#fun", "#latest", "#discover", "#TechTrends", "#FunFacts",
+    "#SelfImprovement", "#MindBlown", "#TrueCrime",
+    "#UnsolvedMysteries", "#CrimeDocumentary",
+    "#MysteryStories", "#ColdCases", "#StrangeFacts",
+    "#DarkHistory", "#ConspiracyTheories", "#CrimeStories",
+    "#MysteryUnveiled", "#GadgetReviews", "#LatestTechnology",
+    "#TechNews", "#FutureTech", "#AIUpdates", "#TechTips",
+    "#TechReviews", "#DigitalWorld", "#Innovation",
+    "#Motivation", "#SuccessMindset", "#LifeHacks",
+    "#ProductivityTips", "#PositiveThinking", "#DailyMotivation",
+    "#PersonalGrowth", "#MindsetMatters", "#Inspiration",
+    "#HistoryFacts", "#DidYouKnow", "#HistoricalEvents",
+    "#HistoryUncovered", "#PastAndPresent", "#WorldHistory",
+    "#AncientCivilizations", "#HistoryBuff", "#FamousFigures",
+    "#TimelineTrivia", "#RandomFacts", "#WeirdButTrue",
+    "#AmazingWorld", "#KnowledgeIsPower", "#FactsDaily",
+    "#TriviaTime"
+]
+
+# ============================ Authentication ============================
+def authenticate_youtube():
+    creds = None
+    if os.path.exists('token.pickle'):
+        with open('token.pickle', 'rb') as token:
+            creds = pickle.load(token)
+    try:
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+                creds = flow.run_local_server(port=8080)
+            with open('token.pickle', 'wb') as token:
+                pickle.dump(creds, token)
+        return build('youtube', 'v3', credentials=creds)
+    except Exception as e:
+        logging.error(f"Authentication error: {e}")
+        raise
+
+# ============================ Content Generation ============================
+def get_trending_topic():
+    """
+    Randomly fetch a trending topic from categories or combine them.
+    """
+    if random.random() < 0.5:
+        return random.choice(CATEGORIES)
+    else:
+        return " ".join(random.sample(CATEGORIES, 2))
+
+def generate_content_idea():
+    """
+    50% chance to pick from static categories, 50% to pick a trending topic.
+    """
+    if random.random() < 0.5:
+        return random.choice(CATEGORIES)
+    else:
+        return get_trending_topic()
+
+def generate_text_content(category, length=150):
+    """
+    Generates an engaging YouTube Shorts script with a strong hook,
+    fun facts, and a CTA using simple language.
+    """
+    try:
+        prompt = (
+            f"Create a {length}-word YouTube Shorts script about '{category}'.\n"
+            "1. Begin with a surprising question or statement to hook the viewer.\n"
+            "2. Present 1-2 fun or interesting facts using simple language.\n"
+            "3. Keep it exciting and understandable for a wide audience.\n"
+            "4. End with a clear call-to-action to like, share, and subscribe.\n"
+            "5. Make sure it can be spoken comfortably in under 20 seconds."
+        )
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=int(length * 2),
+            temperature=0.9
+        )
+        if 'choices' in response and len(response['choices']) > 0:
+            return response['choices'][0]['message']['content'].strip()
+        else:
+            logging.error("No valid choices found in the GPT response.")
+            return "Default script content. (placeholder)"
+    except Exception as e:
+        logging.error(f"Error generating script: {e}")
+        return "Default script content. (placeholder)"
+
+def generate_title(category):
+    """
+    Generates a catchy title with relevant keywords.
+    Removes single quotes (both straight and curly), double quotes, and appends static trending hashtags.
+    """
+    try:
+        prompt = (
+            f"Generate a catchy YouTube Short title for a video about {category}. "
+            "Start with an attention-grabbing word, include at least one keyword from the category, "
+            "and finish with #shorts or other relevant hashtags."
+        )
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=30,
+            temperature=0.8
+        )
+        if 'choices' in response and len(response['choices']) > 0:
+            title = response['choices'][0]['message']['content'].strip()
+            
+            # Remove all single and double quotes (straight or curly)
+            for ch in ["'", "’", "‘", '"', "“", "”"]:
+                title = title.replace(ch, "")
+            
+            # Append static trending hashtags (sample 3)
+            random_tags = random.sample(TRENDING_HASHTAGS, 3)
+            title += " " + " ".join(random_tags)
+
+            logging.info(f"Generated title: {title}")
+            return title
+        else:
+            logging.error("No valid choices found in the GPT response for the title.")
+            # Fallback title
+            fallback_title = f"{category.capitalize()} #shorts #trending"
+            for ch in ["'", "’", "‘", '"', "“", "”"]:
+                fallback_title = fallback_title.replace(ch, "")
+            random_tags = random.sample(TRENDING_HASHTAGS, 3)
+            fallback_title += " " + " ".join(random_tags)
+            return fallback_title
+
+    except Exception as e:
+        logging.error(f"Error generating title: {e}")
+        # Fallback title in case of error
+        fallback_title = f"{category.capitalize()} #shorts #trending"
+        for ch in ["'", "’", "‘", '"', "“", "”"]:
+            fallback_title = fallback_title.replace(ch, "")
+        random_tags = random.sample(TRENDING_HASHTAGS, 3)
+        fallback_title += " " + " ".join(random_tags)
+        return fallback_title
+
+
+def generate_description(category):
+    """
+    Generates an engaging description with bullet points, a CTA,
+    and appends static trending hashtags.
+    """
+    try:
+        prompt = (
+            f"Write an engaging YouTube Short description for a video about {category}. "
+            "Add 2-3 bullet points summarizing the key info, request likes/shares/subscribes, "
+            "and end with relevant hashtags. Keep it concise and impactful."
+        )
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=120,
+            temperature=0.7
+        )
+        if 'choices' in response and len(response['choices']) > 0:
+            description = response['choices'][0]['message']['content'].strip()
+            
+            # Append static trending hashtags (sample 7)
+            desc_hashtags = random.sample(TRENDING_HASHTAGS, 7)
+            description += "\n\n" + " ".join(desc_hashtags)
+
+            logging.info(f"Generated description: {description}")
+            return description
+        else:
+            logging.error("No valid choices found in the GPT response for the description.")
+            fallback_description = (
+                f"Discover amazing facts about {category}! Don't forget to like, share, and subscribe.\n\n"
+            )
+            desc_hashtags = random.sample(TRENDING_HASHTAGS, 7)
+            fallback_description += " ".join(desc_hashtags)
+            return fallback_description
+
+    except Exception as e:
+        logging.error(f"Error generating description: {e}")
+        fallback_description = (
+            f"Discover amazing facts about {category}! Don't forget to like, share, and subscribe.\n\n"
+        )
+        desc_hashtags = random.sample(TRENDING_HASHTAGS, 7)
+        fallback_description += " ".join(desc_hashtags)
+        return fallback_description
+
+# ============================ Voiceover Generation ============================
+def generate_voiceover(text, output_path):
+    """
+    Generate a voiceover using Coqui TTS.
+    Saves a .wav file for better MoviePy compatibility.
+    """
+    try:
+        voice_models = [
+            "tts_models/en/ljspeech/tacotron2-DDC",
+            "tts_models/en/ljspeech/tacotron2-DDC_ph"
+        ]
+        random_model = random.choice(voice_models)
+        tts = TTS(model_name=random_model)
+
+        wav_output = output_path.replace(".mp3", ".wav")
+        tts.tts_to_file(text=text, file_path=wav_output)
+
+        logging.info(f"Voiceover saved to {wav_output} using model: {random_model}")
+        return wav_output
+    except Exception as e:
+        logging.error(f"Error generating voiceover with Coqui TTS: {e}")
+        raise
+
+# ============================ Video Processing ============================
+def split_script_into_segments(script, words_per_segment=6):
+    words = script.split()
+    length = len(words)
+    if length > 120:
+        words_per_segment = 8
+    elif length < 60:
+        words_per_segment = 5
+
+    segments = [' '.join(words[i:i + words_per_segment]) for i in range(0, len(words), words_per_segment)]
+    return segments
+
+def add_animated_captions(video_clip, script, duration):
+    """
+    Splits the script into segments and overlays animated captions onto the video.
+    Each caption slides in with a slight vertical bounce effect.
+    """
+    segments = split_script_into_segments(script)
+    num_segments = len(segments)
+    if num_segments == 0:
+        return video_clip
+
+    segment_duration = duration / num_segments
+    caption_clips = []
+
+    for idx, segment in enumerate(segments):
+        start_time = idx * segment_duration
+        txt_clip = TextClip(
+            segment,
+            fontsize=50,
+            color='white',
+            stroke_color='black',
+            stroke_width=2,
+            font='Arial-Bold',
+            method='caption',
+            size=(int(video_clip.w * 0.8), None),
+            align='center'
+        ).set_start(start_time).set_duration(segment_duration)
+        
+        # Apply a dynamic animation: a slight vertical bounce effect using a sine wave.
+        txt_clip = txt_clip.set_position(
+            lambda t, st=start_time: (
+                'center', 
+                video_clip.h / 2 + 20 * np.sin((t - st) * 3)
+            )
+        )
+        txt_clip = txt_clip.fadein(0.3).fadeout(0.3)
+        caption_clips.append(txt_clip)
+
+    return CompositeVideoClip([video_clip] + caption_clips)
+
+def add_brand_watermark(video_clip):
+    watermark_text = "PurffleStudios"  # Replace with your brand or channel name
+    txt_clip = (
+        TextClip(
+            watermark_text,
+            fontsize=32,
+            color='white',
+            stroke_color='black',
+            stroke_width=3,
+            font='Arial-Bold'
+        )
+        .set_position(('right', 'top'))
+        .set_duration(video_clip.duration)
+        .margin(right=20, top=20, opacity=0)
+    )
+    return CompositeVideoClip([video_clip, txt_clip])
+
+def add_end_screen_cta(video_clip):
+    end_duration = 3
+    start_time = video_clip.duration - end_duration
+
+    cta_text = "Like, Share & Subscribe!"
+    txt_clip = (
+        TextClip(
+            cta_text,
+            fontsize=60,
+            color='yellow',
+            stroke_color='black',
+            stroke_width=2,
+            font='Arial-Bold'
+        )
+        .set_position('center')
+        .set_start(start_time)
+        .set_duration(end_duration)
+        .fadein(0.5)
+        .fadeout(0.5)
+    )
+    return CompositeVideoClip([video_clip, txt_clip])
+
+def resize_video(video_path, target_resolution=(720, 1280)):
+    try:
+        clip = VideoFileClip(video_path)
+        resized_clip = clip.resize(newsize=target_resolution)
+        resized_path = video_path.replace(".mp4", "_resized.mp4")
+
+        resized_clip.write_videofile(
+            resized_path,
+            codec="libx264",
+            audio_codec="aac",
+            fps=60
+        )
+        clip.close()
+        resized_clip.close()
+        return resized_path
+    except Exception as e:
+        logging.error(f"Error resizing video {video_path}: {e}")
+        return video_path
+
+def download_video(video_url, video_path):
+    try:
+        response = requests.get(video_url, stream=True)
+        response.raise_for_status()
+        with open(video_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        logging.info(f"Downloaded video to {video_path}")
+        return video_path
+    except Exception as e:
+        logging.error(f"Error downloading video from {video_url}: {e}")
+        return None
+
+# ============================ Fetch Videos from Pexels & Pixabay ============================
+def fetch_pexels_videos(query, num_videos=3):
+    """
+    Fetches videos from Pexels that are more closely related to the category.
+    We expand the query by adding extra keywords to increase relevance.
+    """
+    try:
+        expanded_query = f"{query} concept OR {query} background"
+        headers = {"Authorization": PEXELS_API_KEY}
+        url = f"https://api.pexels.com/videos/search?query={requests.utils.quote(expanded_query)}&per_page=10"
+        response = requests.get(url, headers=headers)
+        data = response.json()
+        video_paths = []
+
+        if "videos" in data and len(data["videos"]) > 0:
+            selected_videos = data["videos"][:num_videos]
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                futures = []
+                for video in selected_videos:
+                    video_files = video.get("video_files", [])
+                    if not video_files:
+                        continue
+                    # Sort by resolution (descending)
+                    video_files.sort(key=lambda x: x['width'] * x['height'], reverse=True)
+                    selected_video = video_files[0]
+                    video_url = selected_video['link']
+                    local_path = os.path.join(
+                        OUTPUT_FOLDER,
+                        f"pexels_background_{query.replace(' ', '_')}_{random.randint(1000,9999)}.mp4"
+                    )
+                    futures.append(executor.submit(download_video, video_url, local_path))
+
+                for future in concurrent.futures.as_completed(futures):
+                    path = future.result()
+                    if path:
+                        video_paths.append(path)
+
+        return video_paths
+    except Exception as e:
+        logging.error(f"Error fetching videos from Pexels for query '{query}': {e}")
+        return []
+
+def fetch_pixabay_videos(query, num_videos=3):
+    """
+    Fetches videos from Pixabay with expanded query terms.
+    """
+    try:
+        expanded_query = f"{query} background OR {query} concept"
+        url = (
+            f"https://pixabay.com/api/videos/"
+            f"?key={PIXABAY_API_KEY}"
+            f"&q={requests.utils.quote(expanded_query)}"
+            f"&per_page=10"
+        )
+        response = requests.get(url)
+        data = response.json()
+        video_paths = []
+
+        if "hits" in data and len(data["hits"]) > 0:
+            selected_videos = data["hits"][:num_videos]
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                futures = []
+                for video in selected_videos:
+                    video_files = video.get("videos", {})
+                    quality_order = ['large', 'medium', 'small']
+                    selected_video = None
+                    for quality in quality_order:
+                        if quality in video_files:
+                            selected_video = video_files[quality]
+                            break
+                    if not selected_video:
+                        continue
+                    video_url = selected_video['url']
+                    local_path = os.path.join(
+                        OUTPUT_FOLDER,
+                        f"pixabay_background_{query.replace(' ', '_')}_{random.randint(1000,9999)}.mp4"
+                    )
+                    futures.append(executor.submit(download_video, video_url, local_path))
+
+                for future in concurrent.futures.as_completed(futures):
+                    path = future.result()
+                    if path:
+                        video_paths.append(path)
+
+        return video_paths
+    except Exception as e:
+        logging.error(f"Error fetching videos from Pixabay for query '{query}': {e}")
+        return []
+
+# ============================ Additional Video Editing Functions ============================
+def add_background_music(video_clip, music_path):
+    try:
+        if not os.path.exists(music_path):
+            logging.info(f"No background music found at {music_path}. Skipping.")
+            return video_clip
+
+        music_clip = AudioFileClip(music_path)
+        video_duration = video_clip.duration
+        music_duration = music_clip.duration
+
+        if music_duration < video_duration:
+            music_clip = audio_loop(music_clip, duration=video_duration)
+        else:
+            music_clip = music_clip.subclip(0, video_duration)
+
+        # Lower background music volume
+        final_music_clip = music_clip.volumex(0.08)
+
+        final_audio = CompositeAudioClip([video_clip.audio, final_music_clip])
+        final_clip = video_clip.set_audio(final_audio)
+
+        return final_clip
+    except Exception as e:
+        logging.error(f"Error adding background music from {music_path}: {e}")
+        return video_clip
+
+def add_channel_intro(main_clip_path):
+    intro_path = "channel_intro.mp4"  # Replace with your actual intro path if available
+    if not os.path.exists(intro_path):
+        logging.info("Intro clip not found, skipping channel intro.")
+        return VideoFileClip(main_clip_path)
+
+    try:
+        intro_clip = VideoFileClip(intro_path).fx(fadein, 0.5).fx(fadeout, 0.5)
+        main_clip = VideoFileClip(main_clip_path)
+        final_clip = concatenate_videoclips([intro_clip, main_clip], method="compose")
+        combined_path = main_clip_path.replace(".mp4", "_with_intro.mp4")
+        final_clip.write_videofile(
+            combined_path,
+            codec="libx264",
+            audio_codec="aac",
+            fps=60
+        )
+        intro_clip.close()
+        main_clip.close()
+        final_clip.close()
+        return VideoFileClip(combined_path)
+    except Exception as e:
+        logging.error(f"Error adding channel intro: {e}")
+        return VideoFileClip(main_clip_path)
+
+def create_video(script, pexels_background_paths, pixabay_background_paths, output_path, voiceover_path):
+    try:
+        # Generate voiceover
+        voiceover_wav_path = generate_voiceover(script, voiceover_path)
+
+        # Load voiceover audio
+        audio_clip = AudioFileClip(voiceover_wav_path)
+        voiceover_duration = audio_clip.duration
+
+        # Combine Pexels and Pixabay background videos
+        all_background_paths = pexels_background_paths + pixabay_background_paths
+        resized_clips = []
+        for idx, path in enumerate(all_background_paths):
+            rclip = VideoFileClip(resize_video(path))
+            if idx == 0:
+                rclip = rclip.fx(fadein, 0.5)
+            rclip = rclip.fx(fadeout, 0.5)
+            resized_clips.append(rclip)
+
+        if len(resized_clips) > 1:
+            concatenated_clip = concatenate_videoclips(resized_clips, method="compose")
+        elif len(resized_clips) == 1:
+            concatenated_clip = resized_clips[0]
+        else:
+            logging.error("No background clips available to concatenate.")
+            return None
+
+        # Loop background if too short
+        if concatenated_clip.duration < voiceover_duration:
+            n_loops = int(voiceover_duration // concatenated_clip.duration) + 1
+            concatenated_clip = concatenate_videoclips([concatenated_clip] * n_loops, method="compose")
+
+        # Match final clip to voiceover duration
+        final_clip = concatenated_clip.subclip(0, voiceover_duration).set_audio(audio_clip)
+
+        # Add animated captions with dynamic bounce effect
+        final_clip = add_animated_captions(final_clip, script, voiceover_duration)
+
+        # Export temp before adding intro or overlays
+        temp_path = output_path.replace(".mp4", "_temp.mp4")
+        final_clip.write_videofile(
+            temp_path,
+            codec="libx264",
+            audio_codec="aac",
+            fps=60
+        )
+        final_clip.close()
+
+        # Add channel intro
+        final_clip = add_channel_intro(temp_path)
+
+        # Add brand watermark
+        final_clip = add_brand_watermark(final_clip)
+
+        # Add end screen CTA
+        final_clip = add_end_screen_cta(final_clip)
+
+        # Optionally add background music
+        music_path = "back.mp3"
+        if os.path.exists(music_path):
+            final_clip = add_background_music(final_clip, music_path)
+        else:
+            logging.info(f"Background music file '{music_path}' not found. Skipping.")
+
+        # Write final video
+        final_clip.write_videofile(
+            output_path,
+            codec="libx264",
+            audio_codec="aac",
+            fps=60
+        )
+        final_clip.close()
+
+        # Clean up temp file
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+        return output_path
+    except Exception as e:
+        logging.error(f"Error creating video: {e}")
+        return None
+
+# ============================ YouTube Upload ============================
+def upload_video_to_youtube(youtube, video_path, title, description, tags, category_id="22"):
+    try:
+        if 'shorts' not in tags:
+            tags.append('shorts')
+
+        request_body = {
+            "snippet": {
+                "title": title,
+                "description": description,
+                "tags": tags,
+                "categoryId": category_id
+            },
+            "status": {
+                "privacyStatus": "public"
+            }
+        }
+
+        media = MediaFileUpload(video_path, resumable=True)
+        request = youtube.videos().insert(
+            part="snippet,status",
+            body=request_body,
+            media_body=media
+        )
+
+        response = None
+        while response is None:
+            status, response = request.next_chunk()
+            if status:
+                logging.info(f"Upload progress: {int(status.progress() * 100)}%")
+
+        return response
+    except Exception as e:
+        logging.error(f"Error uploading video: {e}")
+        return None
+
+# ============================ Processing Shorts ============================
+def process_single_short(youtube, index):
+    try:
+        category = generate_content_idea()
+        script = generate_text_content(category, length=150)
+        title = generate_title(category)
+        description = generate_description(category)
+
+        # Fetch videos from Pexels and Pixabay with expanded queries
+        pexels_background_paths = fetch_pexels_videos(category, num_videos=3)
+        pixabay_background_paths = fetch_pixabay_videos(category, num_videos=3)
+
+        if not pexels_background_paths and not pixabay_background_paths:
+            logging.error("No suitable background videos found on Pexels or Pixabay, skipping.")
+            return
+
+        timestamp = int(time.time())
+        video_file = os.path.join(
+            OUTPUT_FOLDER,
+            f"{category.replace(' ', '_')}_{timestamp}.mp4"
+        )
+        voiceover_file = os.path.join(
+            OUTPUT_FOLDER,
+            f"voiceover_{category.replace(' ', '_')}_{timestamp}.mp3"
+        )
+
+        logging.info(f"Creating video {index} for category: {category}")
+        video_path = create_video(script, pexels_background_paths, pixabay_background_paths, video_file, voiceover_file)
+
+        if video_path:
+            tags = [
+                "shorts", "trending", category, "viral", "entertainment",
+                "subscribe", "facts", "amazing"
+            ]
+            logging.info(f"Uploading video: {video_file}")
+            upload_response = upload_video_to_youtube(youtube, video_file, title, description, tags)
+
+            if upload_response:
+                video_url = f"https://www.youtube.com/watch?v={upload_response['id']}"
+                logging.info(f"Uploaded successfully: {video_url}\n")
+            else:
+                logging.error(f"Failed to upload video: {video_file}")
+
+            # Cleanup
+            try:
+                os.remove(video_file)
+                if os.path.exists(voiceover_file.replace(".mp3", ".wav")):
+                    os.remove(voiceover_file.replace(".mp3", ".wav"))
+                for path in pexels_background_paths + pixabay_background_paths:
+                    if os.path.exists(path):
+                        os.remove(path)
+                logging.info(f"Cleaned up files for video: {video_file}")
+            except Exception as cleanup_error:
+                logging.error(f"Error cleaning up files: {cleanup_error}")
+        else:
+            logging.error("Failed to create video.")
+    except Exception as e:
+        logging.error(f"Error processing short {index}: {e}")
+
+# ============================ Automation Loop ============================
+def automate_youtube_shorts(batch_size=5, generation_time_limit=600, wait_time=2400, upload_delay=30):
+    """
+    Automates the creation and uploading of YouTube Shorts in batches.
+    """
+    try:
+        youtube = authenticate_youtube()
+        while True:
+            start_time = time.time()
+            logging.info(f"Starting batch of {batch_size} shorts.")
+
+            for i in range(1, batch_size + 1):
+                process_single_short(youtube, i)
+                logging.info(f"Waiting for {upload_delay} seconds before uploading the next video.")
+                time.sleep(upload_delay)
+
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            logging.info(f"Batch completed in {elapsed_time:.2f} seconds.")
+
+            if elapsed_time > generation_time_limit:
+                logging.warning(f"Batch generation time exceeded {generation_time_limit} seconds.")
+
+            logging.info(f"Waiting for {wait_time / 60} minutes before starting the next batch.")
+            time.sleep(wait_time)
+    except Exception as e:
+        logging.error(f"Automation failed: {e}")
+
+# ============================ Main Execution ============================
+if __name__ == "__main__":
+    automate_youtube_shorts(
+        batch_size=5,          # Number of Shorts to create per batch
+        generation_time_limit=60,  # Time limit for generating a batch in seconds
+        wait_time=20,          # Wait time between batches in seconds (adjust as needed)
+        upload_delay=1         # Delay between uploading individual Shorts in seconds
+    )

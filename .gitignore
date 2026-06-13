@@ -1,0 +1,38 @@
+# Secrets & credentials
+.env
+credentials.json
+token.pickle
+*.pickle
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+myenv/
+venv/
+.venv/
+*.egg-info/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+
+# Generated content
+output_videos/
+
+# Large files
+*.zip
+*.mp3
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Misc
+*.txt
+!requirements.txt
