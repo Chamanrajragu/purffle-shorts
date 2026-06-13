@@ -1,123 +1,151 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/Purffle_Studios-Shorts_Automator-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="PurffleShorts"/>
-</p>
+<div align="center">
 
-<h1 align="center">PurffleShorts — Automated YouTube Shorts Creator</h1>
+# PurffleShorts — Automated YouTube Shorts Creator
 
-<p align="center">
-  <strong>Fully autonomous YouTube Shorts pipeline — picks trending topics, generates scripts, creates videos, and uploads to YouTube on autopilot.</strong>
-</p>
+**Fully autonomous YouTube Shorts pipeline — picks trending topics, writes scripts, generates voiceovers, assembles videos, and uploads to YouTube on autopilot.**
 
-<p align="center">
-  <img src="https://img.shields.io/badge/python-3.9+-blue?style=flat-square&logo=python&logoColor=white" />
-  <img src="https://img.shields.io/badge/OpenAI-GPT_3.5-412991?style=flat-square&logo=openai&logoColor=white" />
-  <img src="https://img.shields.io/badge/Coqui_TTS-voice_cloning-FF6F00?style=flat-square" />
-  <img src="https://img.shields.io/badge/MoviePy-video_engine-FF6F00?style=flat-square" />
-  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" />
-</p>
+[![Python](https://img.shields.io/badge/python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT-412991?style=for-the-badge&logo=openai&logoColor=white)](https://openai.com)
+[![YouTube](https://img.shields.io/badge/YouTube-auto_upload-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtube.com)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e?style=for-the-badge)](LICENSE)
+
+[Features](#-features) · [How It Works](#-how-it-works) · [Quick Start](#-quick-start) · [Categories](#-content-categories) · [Tech Stack](#-tech-stack)
+
+</div>
 
 ---
 
-## What It Does
+## 🤖 What is PurffleShorts?
 
-PurffleShorts is a zero-touch content creation engine. It runs continuously, generating and uploading YouTube Shorts without human intervention:
+PurffleShorts is a **zero-touch content creation engine** that generates and publishes YouTube Shorts autonomously. Once started, it runs in a continuous loop — selecting trending topics, creating scripts, producing voiceovers, assembling professional short-form videos, and uploading them directly to YouTube.
 
-1. **Topic Selection** — Randomly picks from 20+ content categories (mystery, science, true crime, tech, motivation, etc.)
-2. **Script Writing** — GPT-3.5 generates an engaging short-form script optimized for viewer retention
-3. **Voice Synthesis** — Coqui TTS produces studio-quality AI voiceovers (not robotic Google TTS)
-4. **Stock Footage** — Fetches relevant video clips from Pexels and Pixabay APIs
-5. **Video Assembly** — MoviePy composites footage, adds animated subtitles with fade effects, overlays background music
-6. **Hashtag Generation** — AI generates trending, category-relevant hashtags for maximum reach
-7. **Auto Upload** — Publishes directly to YouTube with optimized titles, descriptions, and tags
+Built for **content creators**, **YouTube channels**, and **digital marketers** who want to scale short-form video production without manual editing.
 
-## Features
+---
 
-- **Fully autonomous** — Set it and forget it. Generates Shorts continuously in a loop
-- **Coqui TTS** — Neural text-to-speech for natural, human-like voiceovers
-- **Multi-source footage** — Pulls from both Pexels and Pixabay for diverse visuals
-- **Smart subtitles** — Word-wrapped, fade-animated captions synced to voiceover timing
-- **Background music** — Audio-loops a background track under the voiceover
-- **AI hashtags** — GPT generates category-specific trending hashtags per video
-- **20+ categories** — Mystery, horror, science, true crime, finance, tech, motivation, and more
+## 🔄 How It Works
 
-## Tech Stack
+```
+Topic Selection → AI Script → Neural Voiceover → Stock Footage → Video Assembly → Auto Upload → Repeat
+```
 
-| Component | Technology |
-|-----------|-----------|
-| AI Script | OpenAI GPT-3.5 Turbo |
-| Voice | Coqui TTS (neural) |
-| Video | MoviePy, ImageMagick, Pillow |
-| Stock Media | Pexels API, Pixabay API |
-| Upload | YouTube Data API v3, OAuth 2.0 |
-| Language | Python 3.9+ |
+| Step | What Happens | Technology |
+|------|-------------|------------|
+| 1. **Topic** | Randomly picks from 20+ content categories | Built-in category engine |
+| 2. **Script** | GPT writes a retention-optimized short-form script | OpenAI GPT-3.5 |
+| 3. **Voice** | Neural TTS produces natural, human-like voiceover | Coqui TTS |
+| 4. **Footage** | Fetches relevant stock clips from multiple sources | Pexels + Pixabay APIs |
+| 5. **Assembly** | Composites footage, animated subtitles, background music | MoviePy + ImageMagick |
+| 6. **Hashtags** | AI generates trending, category-relevant tags | OpenAI GPT |
+| 7. **Upload** | Publishes to YouTube with optimized metadata | YouTube Data API v3 |
 
-## Quick Start
+The entire pipeline repeats automatically — producing Shorts 24/7 without intervention.
+
+---
+
+## ✨ Features
+
+| Feature | Description |
+|---------|-------------|
+| **Fully autonomous** | Set it and forget it — generates Shorts continuously in a loop |
+| **Neural TTS** | Coqui TTS for natural, studio-quality AI voiceovers |
+| **Multi-source footage** | Pulls from both Pexels and Pixabay for diverse visuals |
+| **Smart subtitles** | Word-wrapped, fade-animated captions synced to timing |
+| **Background music** | Audio-loops a background track under the voiceover |
+| **AI hashtags** | GPT generates trending hashtags per video category |
+| **20+ categories** | Mystery, science, true crime, tech, finance, motivation, and more |
+| **Auto upload** | Direct YouTube publishing with titles, descriptions, and tags |
+
+---
+
+## 🚀 Quick Start
 
 ### Prerequisites
 
 - Python 3.9+
 - [ImageMagick](https://imagemagick.org/script/download.php) installed
-- API keys for OpenAI, Pexels, and Pixabay
-- Google OAuth credentials for YouTube
+- API keys: [OpenAI](https://platform.openai.com/api-keys), [Pexels](https://www.pexels.com/api/), [Pixabay](https://pixabay.com/api/docs/)
+- Google OAuth credentials for YouTube upload
 
-### Installation
+### Install & Run
 
 ```bash
-# Clone the repo
+# Clone
 git clone https://github.com/Chamanrajragu/purffle-shorts.git
 cd purffle-shorts
 
-# Create virtual environment
+# Setup
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
 
-# Configure environment
+# Configure
 cp .env.example .env
-# Edit .env with your API keys
-```
+# Edit .env → add your API keys
 
-### Run
-
-```bash
+# Run
 python YT.py
 ```
 
-The bot will start generating and uploading Shorts autonomously.
+The bot starts generating and uploading Shorts autonomously.
 
-## Environment Variables
+---
 
-| Variable | Description |
-|----------|-------------|
-| `OPENAI_API_KEY` | Your OpenAI API key |
-| `PEXELS_API_KEY` | Your Pexels API key |
-| `PIXABAY_API_KEY` | Your Pixabay API key |
-| `GOOGLE_CLIENT_SECRETS_FILE` | Path to Google OAuth credentials |
+## 🔑 Environment Variables
 
-## Content Categories
+| Variable | Required | Description |
+|----------|:--------:|-------------|
+| `OPENAI_API_KEY` | ✅ | OpenAI API key for scripts and hashtags |
+| `PEXELS_API_KEY` | ✅ | Pexels API key for stock footage |
+| `PIXABAY_API_KEY` | ✅ | Pixabay API key for additional footage |
+
+---
+
+## 🎯 Content Categories
 
 The bot randomly selects from these categories for maximum variety:
 
-`Mystery` · `Horror Stories` · `Science` · `True Crime` · `Tech Trends` · `Finance Tips` · `Space Exploration` · `Psychology` · `Motivational` · `Self-Improvement` · `History Mysteries` · `Fun Facts` · `Cars` · `Trending News` · `Interesting People` · and more
+`Mystery` · `Horror Stories` · `Science` · `True Crime` · `Tech Trends` · `Finance Tips` · `Space Exploration` · `Psychology` · `Motivational` · `Self-Improvement` · `History Mysteries` · `Fun Facts` · `Cars` · `Trending News` · `Interesting People` · `Philosophy` · `Nature` · `Gaming` · `Health` · `AI & Future`
 
-## Project Structure
+---
+
+## 🏗️ Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| **AI Script** | OpenAI GPT-3.5 Turbo |
+| **Voice** | Coqui TTS (neural text-to-speech) |
+| **Video** | MoviePy, ImageMagick, Pillow |
+| **Stock Media** | Pexels API, Pixabay API |
+| **Upload** | YouTube Data API v3, OAuth 2.0 |
+| **Language** | Python 3.9+ |
+
+---
+
+## 📁 Project Structure
 
 ```
 purffle-shorts/
 ├── YT.py                  # Main automation engine
 ├── el.py                  # Extended logic module
-├── ytt.py                 # YouTube utility helpers
+├── ytt.py                 # YouTube upload helpers
 ├── requirements.txt       # Python dependencies
-├── .env.example           # Environment variable template
+├── .env.example           # API key template
 └── output_videos/         # Generated Shorts (gitignored)
 ```
 
 ---
 
-<p align="center">
-  Built with passion by <a href="https://github.com/Chamanrajragu"><strong>Purffle Studios</strong></a>
-  <br/>
-  <sub>Part of the Purffle ecosystem — PurffleTools · PurffleAI · Purffle.com</sub>
-</p>
+## ⚠️ Disclaimer
+
+> This is an open-source automation tool for educational purposes. Requires your own API keys. Always review AI-generated content before publishing. Comply with YouTube's Terms of Service and Community Guidelines. Not affiliated with YouTube, OpenAI, Pexels, or Pixabay.
+
+---
+
+<div align="center">
+
+**Built by [Chaman Raj](https://github.com/Chamanrajragu)**
+
+Part of the **Purffle** ecosystem — PurffleTools · PurffleAI · [Purffle.com](https://purffle.com)
+
+</div>
