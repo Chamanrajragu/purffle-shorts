@@ -107,6 +107,7 @@ def _parse_resolution(value, default=(720, 1280)):
 TARGET_RESOLUTION = _parse_resolution(os.getenv("SHORTS_RESOLUTION", "720x1280"))
 VIDEO_FPS = int(os.getenv("SHORTS_FPS", "60"))
 MUSIC_VOLUME = float(os.getenv("SHORTS_MUSIC_VOLUME", "0.08"))
+CAPTION_FONTSIZE = int(os.getenv("SHORTS_CAPTION_FONTSIZE", "50"))
 
 
 def with_retries(fn, *args, attempts=3, base_delay=2, label="operation", **kwargs):
@@ -121,6 +122,12 @@ def with_retries(fn, *args, attempts=3, base_delay=2, label="operation", **kwarg
             wait = base_delay * (2 ** (i - 1))
             logging.warning(f"{label} attempt {i}/{attempts} failed: {e}; retrying in {wait}s")
             time.sleep(wait)
+
+
+def chat_completion(**kwargs):
+    """OpenAI chat call with retries so a transient API hiccup doesn't waste a whole video."""
+    return with_retries(lambda: openai.ChatCompletion.create(**kwargs),
+                        attempts=3, label="OpenAI chat")
 
 # ============================ Categories and Static Trending Hashtags ============================
 CATEGORIES = [
@@ -186,7 +193,7 @@ def generate_hashtags(category, min_count=5):
             "Ensure that the hashtags are correct, popular, and will help get more views. "
             "Return the hashtags in a comma separated format."
         )
-        response = openai.ChatCompletion.create(
+        response = chat_completion(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=50,
@@ -233,7 +240,7 @@ def generate_text_content(category, length=150):
             "4. End with a clear call-to-action to like, share, and subscribe.\n"
             "5. Make sure it can be spoken comfortably in under 20 seconds."
         )
-        response = openai.ChatCompletion.create(
+        response = chat_completion(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=int(length * 2),
@@ -253,7 +260,7 @@ def generate_title(category):
             f"Generate a catchy YouTube Short title for a video about {category}. "
             "Start with an attention-grabbing word and include at least one keyword from the category."
         )
-        response = openai.ChatCompletion.create(
+        response = chat_completion(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=30,
@@ -310,7 +317,7 @@ def generate_description(category):
             f"Write an engaging YouTube Short description for a video about {category}. "
             "Include 2-3 bullet points summarizing the key info, and ask viewers to like, share, and subscribe."
         )
-        response = openai.ChatCompletion.create(
+        response = chat_completion(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=120,
@@ -378,7 +385,7 @@ def add_animated_captions(video_clip, script, duration):
         start_time = idx * segment_duration
         txt_clip = TextClip(
             segment,
-            fontsize=50,
+            fontsize=CAPTION_FONTSIZE,
             color='white',
             stroke_color='black',
             stroke_width=2,
@@ -744,25 +751,41 @@ def process_single_short(index, upload=True):
         return False
 
 # ============================ Automation Loop ============================
-def automate_youtube_shorts(batch_size=5, batch_delay=5, once=False, upload=True):
+def automate_youtube_shorts(batch_size=5, batch_delay=5, once=False, upload=True, max_videos=None):
     batch_num = 0
+    total_ok = 0
     try:
         while True:
             batch_num += 1
+            this_batch = batch_size
+            if max_videos is not None:
+                remaining = max_videos - total_ok
+                if remaining <= 0:
+                    break
+                this_batch = min(batch_size, remaining)
             start_time = time.time()
-            logging.info(f"Starting batch {batch_num} of {batch_size} shorts "
+            logging.info(f"Starting batch {batch_num} of {this_batch} shorts "
                          f"({'UPLOAD' if upload else 'DRY-RUN'}).")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=batch_size) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=this_batch) as executor:
                 futures = [executor.submit(process_single_short, i, upload)
-                           for i in range(1, batch_size + 1)]
+                           for i in range(1, this_batch + 1)]
                 results = [f.result() for f in concurrent.futures.as_completed(futures)]
             ok = sum(1 for r in results if r)
+            total_ok += ok
             elapsed_time = time.time() - start_time
             logging.info(f"Batch {batch_num} done in {elapsed_time:.1f}s — "
-                         f"{ok}/{batch_size} succeeded, {batch_size - ok} failed.")
+                         f"{ok}/{this_batch} succeeded, {this_batch - ok} failed "
+                         f"(total produced: {total_ok}).")
             if once:
                 logging.info("Single-batch mode (--once) complete; exiting.")
                 break
+            if max_videos is not None:
+                if ok == 0:
+                    logging.warning("No videos produced this batch; stopping to avoid a loop.")
+                    break
+                if total_ok >= max_videos:
+                    logging.info(f"Reached target of {max_videos} videos; exiting.")
+                    break
             # Wait between batches (configurable via SHORTS_BATCH_DELAY).
             time.sleep(batch_delay)
     except KeyboardInterrupt:
@@ -775,12 +798,22 @@ if __name__ == "__main__":
     import sys
     # Flags:  --once       run a single batch then exit (great for testing)
     #         --no-upload  generate videos but skip YouTube upload (keeps the MP4s)
+    #         --count N    produce exactly N shorts, then stop
     once = "--once" in sys.argv
     do_upload = "--no-upload" not in sys.argv
+    max_videos = None
+    if "--count" in sys.argv:
+        idx = sys.argv.index("--count")
+        if idx + 1 < len(sys.argv):
+            try:
+                max_videos = max(1, int(sys.argv[idx + 1]))
+            except ValueError:
+                logging.warning("--count needs a number, e.g. --count 3; ignoring.")
     # Number of Shorts per batch and the pause between batches are env-configurable.
     automate_youtube_shorts(
         batch_size=int(os.getenv("SHORTS_BATCH_SIZE", "5")),
         batch_delay=int(os.getenv("SHORTS_BATCH_DELAY", "5")),
         once=once,
         upload=do_upload,
+        max_videos=max_videos,
     )
