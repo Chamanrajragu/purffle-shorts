@@ -1,5 +1,6 @@
 import os
 import random
+import shutil
 import time
 import logging
 import pickle
@@ -37,9 +38,16 @@ if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.Resampling.LANCZOS
 
 # ============================ Configuration ============================
-change_settings({
-    "IMAGEMAGICK_BINARY": r"C:\\Program Files\\ImageMagick-7.1.1-Q16-HDRI\\magick.exe"
-})  # Update path if necessary
+# Locate ImageMagick automatically. Order: IMAGEMAGICK_BINARY env var → PATH → common
+# Windows install location. This avoids the previous hardcoded version-specific path that
+# broke on any machine without that exact ImageMagick build installed.
+_im_path = (
+    os.getenv("IMAGEMAGICK_BINARY")
+    or shutil.which("magick")
+    or r"C:\Program Files\ImageMagick-7.1.2-Q16-HDRI\magick.exe"
+)
+if os.path.exists(_im_path):
+    change_settings({"IMAGEMAGICK_BINARY": _im_path})
 
 LOG_FILE = 'youtube_shorts_automation.log'
 
@@ -59,6 +67,12 @@ logging.basicConfig(
 
 from dotenv import load_dotenv
 load_dotenv()
+
+if not os.path.exists(_im_path):
+    logging.warning(
+        "ImageMagick not found (looked for %s). Text captions/watermarks will fail until "
+        "it is installed or IMAGEMAGICK_BINARY is set.", _im_path
+    )
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
@@ -81,6 +95,32 @@ SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
 
 OUTPUT_FOLDER = 'output_videos/'
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+# ============================ Tunable render settings (env-configurable) ============================
+def _parse_resolution(value, default=(720, 1280)):
+    try:
+        w, h = value.lower().split('x')
+        return (int(w), int(h))
+    except Exception:
+        return default
+
+TARGET_RESOLUTION = _parse_resolution(os.getenv("SHORTS_RESOLUTION", "720x1280"))
+VIDEO_FPS = int(os.getenv("SHORTS_FPS", "60"))
+MUSIC_VOLUME = float(os.getenv("SHORTS_MUSIC_VOLUME", "0.08"))
+
+
+def with_retries(fn, *args, attempts=3, base_delay=2, label="operation", **kwargs):
+    """Call fn with exponential-backoff retries on transient failures."""
+    for i in range(1, attempts + 1):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            if i == attempts:
+                logging.error(f"{label} failed after {attempts} attempts: {e}")
+                raise
+            wait = base_delay * (2 ** (i - 1))
+            logging.warning(f"{label} attempt {i}/{attempts} failed: {e}; retrying in {wait}s")
+            time.sleep(wait)
 
 # ============================ Categories and Static Trending Hashtags ============================
 CATEGORIES = [
@@ -395,7 +435,8 @@ def add_end_screen_cta(video_clip):
     )
     return CompositeVideoClip([video_clip, txt_clip])
 
-def resize_video(video_path, target_resolution=(720, 1280)):
+def resize_video(video_path, target_resolution=None):
+    target_resolution = target_resolution or TARGET_RESOLUTION
     try:
         clip = VideoFileClip(video_path)
         resized_clip = clip.resize(newsize=target_resolution)
@@ -404,7 +445,7 @@ def resize_video(video_path, target_resolution=(720, 1280)):
             resized_path,
             codec="libx264",
             audio_codec="aac",
-            fps=60,
+            fps=VIDEO_FPS,
             ffmpeg_params=['-threads', '0']
         )
         clip.close()
@@ -415,17 +456,19 @@ def resize_video(video_path, target_resolution=(720, 1280)):
         return video_path
 
 def download_video(video_url, video_path):
-    try:
-        response = requests.get(video_url, stream=True)
+    def _do():
+        response = requests.get(video_url, stream=True, timeout=30)
         response.raise_for_status()
         with open(video_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
-        logging.info(f"Downloaded video to {video_path}")
         return video_path
-    except Exception as e:
-        logging.error(f"Error downloading video from {video_url}: {e}")
+    try:
+        path = with_retries(_do, attempts=3, label=f"download {os.path.basename(video_path)}")
+        logging.info(f"Downloaded video to {path}")
+        return path
+    except Exception:
         return None
 
 # ============================ Fetch Videos from Pexels & Pixabay ============================
@@ -516,7 +559,7 @@ def add_background_music(video_clip, music_path):
             music_clip = audio_loop(music_clip, duration=video_duration)
         else:
             music_clip = music_clip.subclip(0, video_duration)
-        final_music_clip = music_clip.volumex(0.08)
+        final_music_clip = music_clip.volumex(MUSIC_VOLUME)
         final_audio = CompositeAudioClip([video_clip.audio, final_music_clip])
         final_clip = video_clip.set_audio(final_audio)
         return final_clip
@@ -538,7 +581,7 @@ def add_channel_intro(main_clip_path):
             combined_path,
             codec="libx264",
             audio_codec="aac",
-            fps=60,
+            fps=VIDEO_FPS,
             ffmpeg_params=['-threads', '0']
         )
         intro_clip.close()
@@ -579,7 +622,7 @@ def create_video(script, pexels_background_paths, pixabay_background_paths, outp
             temp_path,
             codec="libx264",
             audio_codec="aac",
-            fps=60,
+            fps=VIDEO_FPS,
             ffmpeg_params=['-threads', '0']
         )
         final_clip.close()
@@ -595,7 +638,7 @@ def create_video(script, pexels_background_paths, pixabay_background_paths, outp
             output_path,
             codec="libx264",
             audio_codec="aac",
-            fps=60,
+            fps=VIDEO_FPS,
             ffmpeg_params=['-threads', '0']
         )
         final_clip.close()
@@ -639,7 +682,9 @@ def upload_video_to_youtube(youtube, video_path, title, description, tags, categ
         return None
 
 # ============================ Processing Shorts ============================
-def process_single_short(index):
+def process_single_short(index, upload=True):
+    """Create one Short. Returns True on success. When upload=False (dry-run) the
+    generated MP4 is kept on disk for inspection instead of being uploaded + deleted."""
     try:
         category = generate_content_idea()
         script = generate_text_content(category, length=150)
@@ -649,7 +694,7 @@ def process_single_short(index):
         pixabay_background_paths = fetch_pixabay_videos(category, num_videos=3)
         if not pexels_background_paths and not pixabay_background_paths:
             logging.error("No suitable background videos found on Pexels or Pixabay, skipping.")
-            return
+            return False
         timestamp = int(time.time())
         video_file = os.path.join(
             OUTPUT_FOLDER,
@@ -661,54 +706,81 @@ def process_single_short(index):
         )
         logging.info(f"Creating video {index} for category: {category}")
         video_path = create_video(script, pexels_background_paths, pixabay_background_paths, video_file, voiceover_file)
-        if video_path:
-            tags = [
-                "shorts", "trending", category, "viral", "entertainment",
-                "subscribe", "facts", "amazing"
-            ]
-            logging.info(f"Uploading video: {video_file}")
-            # Authenticate separately for each thread to avoid sharing issues
-            youtube = authenticate_youtube()
-            upload_response = upload_video_to_youtube(youtube, video_file, title, description, tags)
-            if upload_response:
-                video_url = f"https://www.youtube.com/watch?v={upload_response['id']}"
-                logging.info(f"Uploaded successfully: {video_url}\n")
-            else:
-                logging.error(f"Failed to upload video: {video_file}")
-            try:
-                os.remove(video_file)
-                if os.path.exists(voiceover_file.replace(".mp3", ".wav")):
-                    os.remove(voiceover_file.replace(".mp3", ".wav"))
-                for path in pexels_background_paths + pixabay_background_paths:
-                    if os.path.exists(path):
-                        os.remove(path)
-                logging.info(f"Cleaned up files for video: {video_file}")
-            except Exception as cleanup_error:
-                logging.error(f"Error cleaning up files: {cleanup_error}")
-        else:
+        if not video_path:
             logging.error("Failed to create video.")
+            return False
+
+        if not upload:
+            logging.info(f"[dry-run] Video kept at: {video_file} (skipped upload + cleanup)\n")
+            return True
+
+        tags = [
+            "shorts", "trending", category, "viral", "entertainment",
+            "subscribe", "facts", "amazing"
+        ]
+        logging.info(f"Uploading video: {video_file}")
+        # Authenticate separately for each thread to avoid sharing issues
+        youtube = authenticate_youtube()
+        upload_response = upload_video_to_youtube(youtube, video_file, title, description, tags)
+        ok = bool(upload_response)
+        if ok:
+            video_url = f"https://www.youtube.com/watch?v={upload_response['id']}"
+            logging.info(f"Uploaded successfully: {video_url}\n")
+        else:
+            logging.error(f"Failed to upload video: {video_file}")
+        try:
+            os.remove(video_file)
+            if os.path.exists(voiceover_file.replace(".mp3", ".wav")):
+                os.remove(voiceover_file.replace(".mp3", ".wav"))
+            for path in pexels_background_paths + pixabay_background_paths:
+                if os.path.exists(path):
+                    os.remove(path)
+            logging.info(f"Cleaned up files for video: {video_file}")
+        except Exception as cleanup_error:
+            logging.error(f"Error cleaning up files: {cleanup_error}")
+        return ok
     except Exception as e:
         logging.error(f"Error processing short {index}: {e}")
+        return False
 
 # ============================ Automation Loop ============================
-def automate_youtube_shorts(batch_size=5):
+def automate_youtube_shorts(batch_size=5, batch_delay=5, once=False, upload=True):
+    batch_num = 0
     try:
         while True:
+            batch_num += 1
             start_time = time.time()
-            logging.info(f"Starting batch of {batch_size} shorts concurrently.")
+            logging.info(f"Starting batch {batch_num} of {batch_size} shorts "
+                         f"({'UPLOAD' if upload else 'DRY-RUN'}).")
             with concurrent.futures.ThreadPoolExecutor(max_workers=batch_size) as executor:
-                futures = [executor.submit(process_single_short, i) for i in range(1, batch_size + 1)]
-                concurrent.futures.wait(futures)
-            end_time = time.time()
-            elapsed_time = end_time - start_time
-            logging.info(f"Batch completed in {elapsed_time:.2f} seconds.")
-            # Minimal wait time between batches for maximum performance
-            time.sleep(5)
+                futures = [executor.submit(process_single_short, i, upload)
+                           for i in range(1, batch_size + 1)]
+                results = [f.result() for f in concurrent.futures.as_completed(futures)]
+            ok = sum(1 for r in results if r)
+            elapsed_time = time.time() - start_time
+            logging.info(f"Batch {batch_num} done in {elapsed_time:.1f}s — "
+                         f"{ok}/{batch_size} succeeded, {batch_size - ok} failed.")
+            if once:
+                logging.info("Single-batch mode (--once) complete; exiting.")
+                break
+            # Wait between batches (configurable via SHORTS_BATCH_DELAY).
+            time.sleep(batch_delay)
+    except KeyboardInterrupt:
+        logging.info("Automation stopped by user.")
     except Exception as e:
         logging.error(f"Automation failed: {e}")
 
 # ============================ Main Execution ============================
 if __name__ == "__main__":
+    import sys
+    # Flags:  --once       run a single batch then exit (great for testing)
+    #         --no-upload  generate videos but skip YouTube upload (keeps the MP4s)
+    once = "--once" in sys.argv
+    do_upload = "--no-upload" not in sys.argv
+    # Number of Shorts per batch and the pause between batches are env-configurable.
     automate_youtube_shorts(
-        batch_size=5  # Number of Shorts to create concurrently
+        batch_size=int(os.getenv("SHORTS_BATCH_SIZE", "5")),
+        batch_delay=int(os.getenv("SHORTS_BATCH_DELAY", "5")),
+        once=once,
+        upload=do_upload,
     )
