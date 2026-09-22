@@ -43,3 +43,11 @@ def test_redact_hides_keys_in_urls():
     msg = "Max retries exceeded with url: /api/videos/?key=abc123SECRET&q=octopus (api_key=zzz)"
     out = redact(msg)
     assert "abc123SECRET" not in out and "zzz" not in out and "q=octopus" in out
+
+
+def test_redact_hides_ip_addresses_but_not_times_or_versions():
+    msg = ('HTTP 429 — {"message":"Queue full for IP: 2409:4091:a01f:c202:f83f:1657:e36b:9830"} '
+           "from 203.0.113.7 at 17:49:06 with ffmpeg 9.0.2")
+    out = redact(msg)
+    assert "2409:4091" not in out and "203.0.113.7" not in out and out.count("<ip>") == 2
+    assert "17:49:06" in out and "9.0.2" in out

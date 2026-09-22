@@ -3,10 +3,12 @@ queries, title, description, hashtags and tags — so everything describes the s
 
 from __future__ import annotations
 
+import json
 import logging
 import random
 import re
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 from .config import Settings
 from .utils import clean_narration, strip_emoji, truncate_words
@@ -239,6 +241,17 @@ def write_script(llm, subject: str, settings: Settings, *, source: str = "niche"
     log.info("Script (%s, %d words, %d scenes): %s", style, len(script.narration.split()),
              len(script.scenes), script.title)
     return script
+
+
+def load_script(path: str | Path, settings: Settings) -> Script:
+    """Read a script you wrote or edited yourself (e.g. the ``script.json`` of an earlier video) and
+    clean it up exactly like an AI-written one, so it can be rendered without calling an LLM."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: expected a JSON object with 'title' and 'scenes'")
+    subject = str(data.get("topic") or data.get("title") or Path(path).stem)
+    style = data.get("style") if data.get("style") in STYLES else "facts"
+    return normalize(data, subject, style, settings.language)
 
 
 # --------------------------------------------------------------------------------------------------

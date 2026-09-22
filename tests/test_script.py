@@ -1,8 +1,11 @@
+import json
+from pathlib import Path
+
 import pytest
 
 from purffle_shorts.config import Settings
 from purffle_shorts.llm import extract_json
-from purffle_shorts.script import SCRIPT_SCHEMA, build_prompt, normalize, offline_script
+from purffle_shorts.script import SCRIPT_SCHEMA, build_prompt, load_script, normalize, offline_script
 
 
 @pytest.mark.parametrize("text", [
@@ -55,3 +58,26 @@ def test_prompt_mentions_language_and_length():
     assert "Spanish" in user and "78 words" in user and "Old title" in user
     assert "JSON" in system
     assert set(SCRIPT_SCHEMA["required"]) >= {"title", "scenes", "hashtags"}
+
+
+def test_load_script_cleans_like_an_ai_script(tmp_path):
+    f = tmp_path / "mine.json"
+    f.write_text(json.dumps({"title": "My Own Script #viral", "style": "not-a-style", "hashtags": ["cats"],
+                             "scenes": [{"narration": "Cats sleep a lot.", "search_query": "sleeping cat"}]}))
+    sc = load_script(f, Settings())
+    assert sc.title == "My Own Script" and sc.style == "facts"
+    assert sc.hashtags[:2] == ["#shorts", "#cats"] and sc.topic == "My Own Script #viral"
+    assert sc.scenes[0].image_prompt == "sleeping cat"
+
+
+def test_load_script_rejects_non_objects(tmp_path):
+    f = tmp_path / "bad.json"
+    f.write_text("[1, 2]")
+    with pytest.raises(ValueError):
+        load_script(f, Settings())
+
+
+@pytest.mark.parametrize("path", sorted((Path(__file__).parent.parent / "examples").glob("*.json")))
+def test_shipped_examples_load(path):
+    sc = load_script(path, Settings())
+    assert len(sc.scenes) >= 4 and sc.hook_text and all(s.image_prompt for s in sc.scenes)

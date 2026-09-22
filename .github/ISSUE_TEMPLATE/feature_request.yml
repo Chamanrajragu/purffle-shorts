@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest a voice, model, caption style, source or anything else
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What do you want to do?
+      description: The result you are after, and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could PurffleShorts help?
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Links, examples, screenshots.

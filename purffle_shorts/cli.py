@@ -110,7 +110,7 @@ def cmd_make(args, s: Settings) -> int:
     studio = Studio(s)
     ok = 0
     for _ in range(max(1, args.count or 1)):
-        r = studio.make(args.topic, source=args.source)
+        r = studio.make(args.topic, source=args.source, script_file=args.script)
         if r.ok:
             ok += 1
             print(f"\n✔ {r.title}\n  folder: {r.folder}\n  status: {r.status}"
@@ -168,12 +168,22 @@ def cmd_history(args, s: Settings) -> int:
 
 
 def cmd_providers(args, s: Settings) -> int:
-    from .llm import PRESETS, _key_for
-    print(f"{'PROVIDER':11} {'READY':6} {'DEFAULT MODEL':42} KEY")
+    from .llm import PRESETS, _key_for, ollama_models, ollama_url
+    from .utils import http
+
+    def running(name: str) -> bool:
+        if name == "ollama":
+            return ollama_models(ollama_url()) is not None
+        try:
+            return http().get(PRESETS[name].base_url + "/models", timeout=1.5).ok
+        except Exception:
+            return False
+
+    print(f"{'PROVIDER':11} {'READY':8} {'DEFAULT MODEL':42} KEY")
     for name, p in PRESETS.items():
-        ready = "local" if p.local else ("yes" if _key_for(p, s) else "-")
+        ready = ("running" if running(name) else "off") if p.local else ("yes" if _key_for(p, s) else "-")
         keys = " / ".join(p.key_envs) or "(none)"
-        print(f"{name:11} {ready:6} {p.default_model or '(LLM_MODEL)':42} {keys}")
+        print(f"{name:11} {ready:8} {p.default_model or '(LLM_MODEL)':42} {keys}")
     print("\nPick with LLM_PROVIDER / --provider and LLM_MODEL / --model. Any model the provider offers works.")
     return 0
 
@@ -189,7 +199,7 @@ def cmd_voices(args, s: Settings) -> int:
 
 def cmd_doctor(args, s: Settings) -> int:
     from . import ffmpeg
-    from .llm import LLMError, resolve_provider_name
+    from .llm import LLMError, build_provider, ollama_has, ollama_models, resolve_provider_name
     ok = True
 
     def line(good: bool | None, label: str, detail: str = ""):
@@ -211,7 +221,18 @@ def cmd_doctor(args, s: Settings) -> int:
         line(False, "ffmpeg", str(e))
     try:
         name = resolve_provider_name(s)
-        line(True, "LLM", f"{name} (model: {s.llm_model or 'default'})")
+        prov = build_provider(name, s, s.llm_model)
+        model = getattr(prov, "model", s.llm_model or "default")
+        installed = ollama_models(prov.base_url) if name == "ollama" else []
+        if installed is None:
+            ok = False
+            line(False, "LLM", f"ollama is not running at {prov.base_url} (start it with: ollama serve)")
+        elif name == "ollama" and not ollama_has(installed, model):
+            ok = False
+            line(False, "LLM", f"ollama model '{model}' is not pulled. Run: ollama pull {model}"
+                 + (f"  (installed: {', '.join(installed)})" if installed else ""))
+        else:
+            line(True, "LLM", f"{name} (model: {model})")
     except LLMError as e:
         ok = False
         line(False, "LLM", str(e))
@@ -224,11 +245,12 @@ def cmd_doctor(args, s: Settings) -> int:
         need = {"pexels": s.pexels_api_key, "pixabay": s.pixabay_api_key,
                 "openai-images": s.openai_api_key}.get(src, "n/a")
         usable += bool(need)
-        line(True if need and need != "n/a" else None, f"Visual source {src}",
+        line(True if need else None, f"Visual source {src}",
              "key found" if need and need != "n/a" else ("no key needed" if need == "n/a" else "API key missing"))
     if not usable:
         ok = False
-        line(False, "Footage", "no usable visual source — every scene would be an animated gradient")
+        line(False, "Footage", "no usable visual source — every scene would be an animated gradient. Add a "
+             "Pexels/Pixabay key, or add pollinations to VISUAL_SOURCES for free AI images (no key)")
     try:
         import edge_tts  # noqa: F401
         line(True, "edge-tts", "installed")
@@ -273,6 +295,8 @@ def build_parser() -> argparse.ArgumentParser:
     m = sub.add_parser("make", help="make one video now")
     _common(m)
     m.add_argument("--count", type=int, default=1)
+    m.add_argument("--script", metavar="FILE",
+                   help="render your own script JSON (e.g. an edited script.json) instead of asking the LLM")
     m.set_defaults(func=cmd_make)
 
     d = sub.add_parser("demo", help="render a sample Short with no API keys")

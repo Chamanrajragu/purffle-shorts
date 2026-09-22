@@ -140,3 +140,22 @@ def test_anthropic_other_models_use_plain_messages(monkeypatch):
     L.AnthropicProvider("claude-haiku-4-5", "key").complete("s", "u", schema={})
     kind, kw = captured[0]
     assert kind == "messages" and "fallbacks" not in kw and "output_config" not in kw
+
+
+@pytest.mark.parametrize("host,url", [
+    ("", "http://localhost:11434/v1"),
+    ("127.0.0.1:11434", "http://127.0.0.1:11434/v1"),
+    ("http://gpu-box:11434/", "http://gpu-box:11434/v1"),
+])
+def test_ollama_url_accepts_bare_host(monkeypatch, host, url):
+    monkeypatch.setenv("OLLAMA_HOST", host)
+    assert L.ollama_url() == url
+
+
+def test_ollama_uses_an_installed_model_when_default_missing(monkeypatch):
+    monkeypatch.setattr(L, "ollama_models", lambda url: ["granite4.1:3b", "qwen3:8b"])
+    assert L.build_provider("ollama", Settings()).model == "granite4.1:3b"
+    assert L.build_provider("ollama", Settings(), "qwen3:8b").model == "qwen3:8b"
+    monkeypatch.setattr(L, "ollama_models", lambda url: ["llama3.1:latest"])
+    assert L.build_provider("ollama", Settings()).model == "llama3.1"
+    assert L.ollama_has(["llama3.1:latest"], "llama3.1") and not L.ollama_has(["llama3.1:8b"], "llama3.1")

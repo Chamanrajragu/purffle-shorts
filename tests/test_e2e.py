@@ -30,3 +30,19 @@ def test_offline_render(settings, monkeypatch, renderer):
     assert not (r.folder / "work").exists()
     hist = Studio(s).history.recent(1)[0]
     assert hist["status"] == "rendered"
+
+
+@needs_ffmpeg
+def test_render_from_script_file_needs_no_llm(settings, tmp_path):
+    f = tmp_path / "script.json"
+    f.write_text(json.dumps({"title": "Honey Never Spoils", "hook_text": "3000 YEARS OLD",
+                             "scenes": [{"narration": "Archaeologists found honey in Egyptian tombs.",
+                                         "search_query": "honey jar"},
+                                        {"narration": "It was still safe to eat.", "search_query": "honey"}]}))
+    # Not offline, yet no LLM key is set: a script file must not need one.
+    s = settings.with_overrides(tts_engine="silent", resolution=(360, 640), fps=24, music_volume=0.0)
+    r = Studio(s).make(script_file=f)
+    assert r.ok, r.error
+    meta = json.loads((r.folder / "metadata.json").read_text())
+    assert meta["title"] == "Honey Never Spoils #shorts"
+    assert meta["llm"] == "script file" and meta["source"] == "script"

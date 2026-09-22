@@ -84,6 +84,26 @@ def _ollama_up(base_url: str) -> bool:
         return False
 
 
+def ollama_url() -> str:
+    host = os.getenv("OLLAMA_HOST", "").rstrip("/") or PRESETS["ollama"].base_url
+    if not host.startswith("http"):
+        host = "http://" + host
+    return host if host.endswith("/v1") else host + "/v1"
+
+
+def ollama_models(base_url: str) -> list[str] | None:
+    """Models pulled into Ollama, or None when Ollama is not reachable."""
+    try:
+        r = http().get(base_url.rsplit("/v1", 1)[0] + "/api/tags", timeout=1.5)
+        return [m.get("name", "") for m in r.json().get("models", [])] if r.ok else None
+    except Exception:
+        return None
+
+
+def ollama_has(installed: list[str], model: str) -> bool:
+    return model in installed or (":" not in model and f"{model}:latest" in installed)
+
+
 def available_providers(settings: Settings) -> list[str]:
     """Providers that have credentials configured (in auto order)."""
     return [n for n in AUTO_ORDER if _key_for(PRESETS[n], settings)]
@@ -100,8 +120,7 @@ def resolve_provider_name(settings: Settings) -> str:
     found = available_providers(settings)
     if found:
         return found[0]
-    ollama_url = os.getenv("OLLAMA_HOST", PRESETS["ollama"].base_url)
-    if _ollama_up(ollama_url if ollama_url.endswith("/v1") else ollama_url.rstrip("/") + "/v1"):
+    if _ollama_up(ollama_url()):
         return "ollama"
     raise LLMConfigError(
         "No LLM is configured. Set one API key in .env (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, "
@@ -237,6 +256,7 @@ class AnthropicProvider(Provider):
 
 def build_provider(name: str, settings: Settings, model: str = "") -> Provider:
     preset = PRESETS[name]
+    chosen = model
     model = model or preset.default_model
     key = _key_for(preset, settings)
     if preset.kind == "anthropic":
@@ -247,9 +267,12 @@ def build_provider(name: str, settings: Settings, model: str = "") -> Provider:
         if not base_url or not model:
             raise LLMConfigError("LLM_PROVIDER=custom needs LLM_BASE_URL and LLM_MODEL")
     elif name == "ollama":
-        host = os.getenv("OLLAMA_HOST", "").rstrip("/")
-        if host:
-            base_url = host if host.endswith("/v1") else host + "/v1"
+        base_url = ollama_url()
+        installed = None if chosen else ollama_models(base_url)
+        if installed and not ollama_has(installed, model):
+            # No model chosen and the default is not pulled: use one that is, instead of failing every video.
+            log.info("Ollama has no '%s'; using installed model '%s' (set LLM_MODEL to choose)", model, installed[0])
+            model = installed[0]
     if settings.llm_base_url and name == settings.llm_provider:
         base_url = settings.llm_base_url
     if not key and not preset.local and name != "custom":

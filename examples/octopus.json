@@ -1,0 +1,42 @@
+{
+  "topic": "octopus superpowers",
+  "title": "Octopuses Are Basically Aliens",
+  "hook_text": "THIS ANIMAL HAS 3 HEARTS",
+  "style": "facts",
+  "category": "education",
+  "scenes": [
+    {
+      "narration": "An octopus has three hearts, and one of them stops when it swims.",
+      "search_query": "octopus swimming",
+      "image_prompt": "an orange octopus swimming through clear blue water, arms trailing behind it"
+    },
+    {
+      "narration": "Its blood is blue, because it carries oxygen with copper instead of iron.",
+      "search_query": "blue ocean water",
+      "image_prompt": "deep blue ocean water with shafts of sunlight and a small octopus silhouette"
+    },
+    {
+      "narration": "Most of its neurons are not in its head. They are spread through its eight arms.",
+      "search_query": "octopus tentacles",
+      "image_prompt": "a curled octopus arm on a rock, detailed suckers, underwater"
+    },
+    {
+      "narration": "Each arm can taste what it touches, using thousands of sensors in its suckers.",
+      "search_query": "octopus suckers closeup",
+      "image_prompt": "macro photo of octopus suckers touching a seashell"
+    },
+    {
+      "narration": "And it changes color in a split second to vanish against the reef.",
+      "search_query": "coral reef",
+      "image_prompt": "a camouflaged octopus blending into a colourful coral reef"
+    },
+    {
+      "narration": "Which fact surprised you most? Follow for more.",
+      "search_query": "octopus reef",
+      "image_prompt": "a curious octopus peeking out of a coral reef, looking at the camera"
+    }
+  ],
+  "description": "Three hearts, blue blood and arms that can taste. The octopus might be the strangest animal on Earth. Which fact surprised you most?",
+  "hashtags": ["#octopus", "#ocean", "#animals", "#facts"],
+  "tags": ["octopus facts", "ocean animals", "marine biology", "weird animals", "animal facts"]
+}

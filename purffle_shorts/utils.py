@@ -99,11 +99,13 @@ def download(url: str, dest: Path, *, headers: dict | None = None, timeout: int 
 
 
 _SECRET_RE = re.compile(r"(?i)\b((?:api_?)?key|token|access_token)=[^&\s'\"]+")
+# Some services echo your IP in error bodies (e.g. "Queue full for IP: ..."); logs get pasted into issues.
+_IP_RE = re.compile(r"(?i)(?<![\w:.])(?:(?:[0-9a-f]{1,4}:){4,7}[0-9a-f]{1,4}|(?:\d{1,3}\.){3}\d{1,3})(?![\w:.])")
 
 
 def redact(text: object) -> str:
-    """Hide API keys that some services (e.g. Pixabay) put in URLs, before they reach a log."""
-    return _SECRET_RE.sub(r"\1=***", str(text))
+    """Hide API keys that some services (e.g. Pixabay) put in URLs, and IP addresses, before they reach a log."""
+    return _IP_RE.sub("<ip>", _SECRET_RE.sub(r"\1=***", str(text)))
 
 
 def slugify(text: str, max_len: int = 48) -> str:

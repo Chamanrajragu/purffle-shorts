@@ -1,7 +1,7 @@
 """Text-to-speech engines. Every engine returns audio plus per-word timings (native when the engine
 provides them, otherwise from an aligner or an estimate) so captions land exactly on the voice.
 
-  edge        Microsoft neural voices — free, no key, 400+ voices, native word timings (default)
+  edge        Microsoft neural voices — free, no key, 320+ voices in 75 languages, native word timings (default)
   openai      OpenAI gpt-4o-mini-tts / tts-1-hd (OPENAI_API_KEY)
   elevenlabs  ElevenLabs premium voices, native timings (ELEVENLABS_API_KEY)
   kokoro      Kokoro-82M open-weight model, runs locally (pip install kokoro soundfile)

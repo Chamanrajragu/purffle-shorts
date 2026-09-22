@@ -1,0 +1,42 @@
+{
+  "topic": "why flamingos are pink",
+  "title": "Flamingos Aren't Born Pink",
+  "hook_text": "BORN GREY, NOT PINK",
+  "style": "facts",
+  "category": "education",
+  "scenes": [
+    {
+      "narration": "Flamingos are not born pink. Their chicks hatch fluffy and grey.",
+      "search_query": "flamingo chick",
+      "image_prompt": "a fluffy grey flamingo chick standing in shallow water beside its pink parent, soft morning light"
+    },
+    {
+      "narration": "The pink comes from their food: algae and tiny brine shrimp packed with carotenoids, the same pigments that make carrots orange.",
+      "search_query": "flamingo feeding lake",
+      "image_prompt": "a pink flamingo filter feeding in a shallow salt lake full of orange algae, reflections on the water"
+    },
+    {
+      "narration": "Their liver turns those pigments into pink and orange molecules and stores them in their feathers, skin and legs.",
+      "search_query": "pink flamingo feathers",
+      "image_prompt": "extreme close-up of vivid pink and coral flamingo feathers, fine detail"
+    },
+    {
+      "narration": "Zoos add these pigments to their food. Without them, new feathers grow in pale.",
+      "search_query": "flamingos zoo",
+      "image_prompt": "a flock of pale pink flamingos standing in a green zoo pond"
+    },
+    {
+      "narration": "In mating season they rub pigment-rich oil from a gland near the tail onto their feathers. Flamingo makeup!",
+      "search_query": "flamingo preening",
+      "image_prompt": "a bright pink flamingo preening its feathers with its beak at golden hour"
+    },
+    {
+      "narration": "The pinkest birds tend to find mates first. Follow for more.",
+      "search_query": "flamingo flock sunset",
+      "image_prompt": "a huge flock of pink flamingos wading at sunset, warm orange sky"
+    }
+  ],
+  "description": "Flamingos hatch grey. Their colour comes from carotenoid pigments in algae and brine shrimp, and they even top it up with a kind of natural makeup in mating season.",
+  "hashtags": ["#flamingo", "#animals", "#animalfacts", "#nature", "#science"],
+  "tags": ["flamingo facts", "why are flamingos pink", "animal facts", "birds", "carotenoids", "nature facts"]
+}

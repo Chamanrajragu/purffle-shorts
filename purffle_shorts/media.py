@@ -146,10 +146,15 @@ def openai_image(prompt: str, dest: Path, key: str, model: str) -> Path:
     return with_retries(_do, attempts=2, label="OpenAI image")
 
 
+_POLLINATIONS_LOCK = threading.Lock()
+
+
 def pollinations_image(prompt: str, dest: Path, width: int, height: int) -> Path:
     url = (f"https://image.pollinations.ai/prompt/{quote(prompt[:900])}"
            f"?width={width}&height={height}&nologo=true&model=flux&seed={random.randint(1, 10**9)}")
-    return download(url, dest, timeout=180, max_bytes=30 * 1024 * 1024)
+    # Anonymous use allows one queued request per IP; parallel scenes would all get HTTP 429.
+    with _POLLINATIONS_LOCK:
+        return download(url, dest, timeout=180, max_bytes=30 * 1024 * 1024)
 
 
 # ------------------------------------------------------------------------------------------ selection
@@ -261,8 +266,9 @@ class Visuals:
             else:
                 return None
         except Exception as e:
-            log.warning("AI image (%s) for scene %d failed: %s", source, idx, redact(e))
+            log.warning("AI image (%s) for scene %d failed: %s", source, idx + 1, redact(e))
             return None
+        log.info("Scene %d: %s image", idx + 1, source)
         return MediaItem(source, dest.name, "image", path=dest, width=s.width, height=s.height, query=prompt)
 
     def for_scene(self, idx: int, query: str, image_prompt: str, topic: str, need: float, dest_dir: Path) -> MediaItem:

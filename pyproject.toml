@@ -5,17 +5,33 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "purffle-shorts"
 version = "2.0.0"
-description = "Autonomous AI YouTube Shorts studio: topic -> script -> neural voice -> footage -> word-synced captions -> upload."
+description = "Free, open-source AI YouTube Shorts generator and upload autopilot: any LLM writes the script, free neural voices, stock footage or AI images, word-synced captions, ffmpeg render, auto-upload and scheduling."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Chaman Raj" }]
 requires-python = ">=3.10"
-keywords = ["youtube shorts", "ai video", "faceless youtube", "tiktok", "automation", "text to speech", "ffmpeg"]
+keywords = [
+    "youtube shorts", "youtube shorts generator", "youtube automation", "ai video generator", "text to video",
+    "faceless youtube", "shorts maker", "tiktok", "instagram reels", "llm", "openai", "claude", "gemini", "ollama",
+    "text to speech", "edge-tts", "captions", "ffmpeg", "automation",
+]
 classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Multimedia :: Video",
+    "Topic :: Multimedia :: Video :: Conversion",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
     "requests>=2.31",
@@ -42,6 +58,8 @@ purffle-shorts = "purffle_shorts.cli:main"
 [project.urls]
 Homepage = "https://purffle.com/purffle-shorts/"
 Source = "https://github.com/Chamanrajragu/purffle-shorts"
+Issues = "https://github.com/Chamanrajragu/purffle-shorts/issues"
+Changelog = "https://github.com/Chamanrajragu/purffle-shorts/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
 packages = ["purffle_shorts"]

@@ -19,7 +19,7 @@ from .llm import LLM, LLMConfigError
 from .media import Visuals
 from .overlays import build_overlays
 from .render import extract_frame, render_video
-from .script import Script, write_script
+from .script import Script, load_script, write_script
 from .timing import caption_chunks, scene_timeline, srt
 from .topics import Topic, pick_topic
 from .utils import redact, slugify, truncate_words
@@ -108,16 +108,23 @@ class Studio:
 
     # ------------------------------------------------------------------ one video
     def make(self, topic: str | None = None, *, source: str | None = None, upload: bool | None = None,
-             style: str | None = None) -> Result:
+             style: str | None = None, script_file: str | Path | None = None) -> Result:
         t0 = time.time()
         s = self.s
         upload = s.upload if upload is None else upload
         folder = None
         try:
-            pick: Topic = pick_topic(s, self.history, explicit=topic, source=source)
-            log.info("Topic [%s]: %s", pick.source, pick.subject)
-            script = write_script(self.llm, pick.subject, s, source=pick.source,
-                                  avoid=self.history.recent_titles(), context=pick.context, style=style)
+            if script_file:  # your own (or an edited) script: no topic picking, no LLM call
+                script = load_script(script_file, s)
+                pick = Topic(script.topic, "script")
+                writer = "script file"
+                log.info("Script from %s (%d scenes): %s", script_file, len(script.scenes), script.title)
+            else:
+                pick = pick_topic(s, self.history, explicit=topic, source=source)
+                log.info("Topic [%s]: %s", pick.source, pick.subject)
+                script = write_script(self.llm, pick.subject, s, source=pick.source,
+                                      avoid=self.history.recent_titles(), context=pick.context, style=style)
+                writer = self.llm.label if self.llm else "offline"
 
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             folder = (s.out_path / f"{stamp}_{slugify(script.title)}").resolve()  # absolute: history outlives cwd
@@ -153,7 +160,7 @@ class Studio:
                 "category_id": script.category_id, "language": s.language,
                 "topic": script.topic, "source": pick.source, "style": script.style,
                 "duration": round(info["duration"], 2), "resolution": f"{s.width}x{s.height}",
-                "llm": self.llm.label if self.llm else "offline",
+                "llm": writer,
                 "voice": f"{speech.engine}:{speech.voice}", "timing": speech.timing,
                 "visuals": [{"source": m.source, "id": m.id, "kind": m.kind, "query": m.query} for m in media],
                 "created_at": now_iso(),

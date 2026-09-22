@@ -1,0 +1,40 @@
+name: Bug report
+description: Something does not work as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Remove API keys, tokens and personal details from everything you paste.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command you ran
+      render: bash
+      placeholder: python -m purffle_shorts make --topic "..." --no-upload
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `python -m purffle_shorts doctor`
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: The end of data/logs/purffle.log, or the output of the command run with -v.
+      render: text
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 15, Windows 11, Ubuntu 24.04, Docker...
