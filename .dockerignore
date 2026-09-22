@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+credentials.json
+token.json
+token.pickle
+data
+media
+music
+output_videos
+venv
+.venv
+*.zip
+*.mp3
+*.mp4
+*.log

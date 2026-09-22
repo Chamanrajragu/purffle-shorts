@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "purffle-shorts"
+version = "2.0.0"
+description = "Autonomous AI YouTube Shorts studio: topic -> script -> neural voice -> footage -> word-synced captions -> upload."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Chaman Raj" }]
+requires-python = ">=3.10"
+keywords = ["youtube shorts", "ai video", "faceless youtube", "tiktok", "automation", "text to speech", "ffmpeg"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Video",
+]
+dependencies = [
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+    "Pillow>=10.1",
+    "edge-tts>=7.0",
+    "imageio-ffmpeg>=0.5",
+    "tzdata; sys_platform == 'win32'",
+    "google-api-python-client>=2.100",
+    "google-auth>=2.23",
+    "google-auth-oauthlib>=1.1",
+    "anthropic>=1.0",
+]
+
+[project.optional-dependencies]
+whisper = ["faster-whisper>=1.0"]
+kokoro = ["kokoro>=0.9", "soundfile>=0.12"]
+coqui = ["coqui-tts>=0.24"]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[project.scripts]
+purffle-shorts = "purffle_shorts.cli:main"
+
+[project.urls]
+Homepage = "https://purffle.com/purffle-shorts/"
+Source = "https://github.com/Chamanrajragu/purffle-shorts"
+
+[tool.setuptools]
+packages = ["purffle_shorts"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501", "B008", "B905"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,6 +1,10 @@
 # Secrets & credentials
 .env
+.env.*
+!.env.example
 credentials.json
+client_secret*.json
+token.json
 token.pickle
 *.pickle
 
@@ -18,8 +22,12 @@ venv/
 .vscode/
 .idea/
 
-# Generated content
+# Generated content & your own media
 output_videos/
+data/
+media/
+music/
+*.mp4
 
 # Large files
 *.zip

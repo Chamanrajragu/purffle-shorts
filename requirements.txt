@@ -1,18 +1,20 @@
-google-api-core==2.24.1
-google-auth-oauthlib==1.2.1
-google-auth==2.38.0
-google-api-python-client==2.160.0
-requests==2.32.3
-requests_oauthlib==2.0.0
-numpy==1.24.4
-moviepy==1.0.3
-Pillow==10.4.0
-openai==1.62.0
-tqdm==4.67.1
-pyparsing==3.1.4
-pydantic==2.10.6
-protobuf==5.29.3
-idna==3.10
-h11==0.14.0
-httpx==0.28.1
-TTS==0.10.0
+# Core
+requests>=2.31
+python-dotenv>=1.0
+Pillow>=10.1
+edge-tts>=7.0
+imageio-ffmpeg>=0.5        # bundled ffmpeg if none is installed
+tzdata; sys_platform == "win32"
+
+# YouTube upload
+google-api-python-client>=2.100
+google-auth>=2.23
+google-auth-oauthlib>=1.1
+
+# Claude (Anthropic) provider — other LLMs need no extra package
+anthropic>=1.0
+
+# Optional extras (install only what you use):
+#   faster-whisper   precise word timing for OpenAI/Kokoro/Coqui/system voices
+#   kokoro soundfile local open-weight voice (Kokoro-82M)
+#   coqui-tts        local Coqui voices

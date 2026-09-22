@@ -2,14 +2,14 @@
 
 # PurffleShorts — Automated YouTube Shorts Creator
 
-**Fully autonomous YouTube Shorts pipeline — picks trending topics, writes scripts, generates voiceovers, assembles videos, and uploads to YouTube on autopilot.**
+**An autonomous AI Shorts studio. It picks a topic, writes the script with the LLM you choose, voices it with a neural voice, matches footage to every sentence, burns in word-synced animated captions, renders with ffmpeg, then uploads or schedules the video on YouTube, in a loop.**
 
-[![Python](https://img.shields.io/badge/python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![OpenAI](https://img.shields.io/badge/OpenAI-GPT-412991?style=for-the-badge&logo=openai&logoColor=white)](https://openai.com)
+[![Python](https://img.shields.io/badge/python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![LLMs](https://img.shields.io/badge/LLMs-GPT_·_Claude_·_Gemini_·_Llama_·_Ollama-412991?style=for-the-badge)](#-ai-models)
 [![YouTube](https://img.shields.io/badge/YouTube-auto_upload-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtube.com)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e?style=for-the-badge)](LICENSE)
 
-[Features](#-features) · [How It Works](#-how-it-works) · [Quick Start](#-quick-start) · [Categories](#-content-categories) · [Tech Stack](#-tech-stack)
+[What's new](#-whats-new-in-20) · [How it works](#-how-it-works) · [Quick start](#-quick-start) · [AI models](#-ai-models) · [Voices](#%EF%B8%8F-voices) · [Captions](#-captions--look) · [Publishing](#-publishing--scheduling) · [CLI](#-command-line) · [Studio](#%EF%B8%8F-studio-web-dashboard)
 
 </div>
 
@@ -19,133 +19,270 @@
 
 </div>
 
+<p align="center"><img src="docs/preview.png" alt="Frames from a PurffleShorts demo render: hook title, word-highlighted captions, progress bar and end call-to-action" width="760"></p>
 
 ---
 
 ## 🤖 What is PurffleShorts?
 
-PurffleShorts is a **zero-touch content creation engine** that generates and publishes YouTube Shorts autonomously. Once started, it runs in a continuous loop — selecting trending topics, creating scripts, producing voiceovers, assembling professional short-form videos, and uploading them directly to YouTube.
+PurffleShorts is a **zero-touch content engine** for faceless YouTube Shorts (the MP4s work on TikTok and Reels too). Start it and it keeps going: fresh topic, retention-focused script, natural voice, relevant footage, captions synced to each word, a polished 1080×1920 render, and an upload or scheduled release. It stays inside YouTube's daily quota.
 
-Built for **content creators**, **YouTube channels**, and **digital marketers** who want to scale short-form video production without manual editing.
+It is for **content creators**, **faceless channels** and **marketers** who want short-form video at volume without doing the editing.
 
 ---
 
-## 🔄 How It Works
+## 🆕 What's new in 2.0
+
+Version 2 is a rewrite. The 1.x pipeline had problems: the pinned `openai` SDK no longer had the API the code called, landscape footage was stretched into portrait, captions were evenly spaced rather than following the voice, the title and description were generated separately from the script, and every video went through six MoviePy re-encodes.
+
+| | 1.x | 2.0 |
+|---|---|---|
+| Script | GPT-3.5, 4 separate calls, title unrelated to script | **One structured call**: hook, scenes, per-scene footage queries, title, description, hashtags, tags, category |
+| Models | OpenAI only | **OpenAI, Claude, Gemini, Groq, OpenRouter, DeepSeek, Mistral, Together, xAI, Ollama, LM Studio, any OpenAI-compatible URL**, with automatic fallbacks |
+| Voice | Coqui Tacotron2 (robotic, heavy) | **Free Microsoft neural voices** (400+, ~100 languages) + OpenAI, ElevenLabs, Kokoro, Coqui, system voice |
+| Captions | Even time slices, no sync | **Word-accurate timing**, active-word highlight, pop-in animation, 6 styles |
+| Footage | Same query for every clip, landscape stretched to 9:16 | **A search per scene**, portrait-first, smart 9:16 crop, never reused across videos, Ken Burns on photos, AI images optional |
+| Render | MoviePy + ImageMagick, 6 encodes at 60 fps | **ffmpeg only**, one final encode, transitions, colour grades, progress bar. A 25 s Short rendered in 30–40 s on an Intel Mac in testing |
+| Audio | Music at a fixed volume | **Music auto-ducks under the voice**, loudness normalised to −14 LUFS |
+| Publishing | Always public, burns quota | **Schedule into time slots**, privacy options, AI-content disclosure, playlists, quota-aware queue |
+| Ideas | 22 hard-coded categories, repeats | **Niches, Google Trends, Wikipedia "On this day", Reddit TIL, your own list**, with repeats prevented |
+| Extras | — | Web dashboard, `doctor` self-check, history DB, SRT subtitles, cover image, Docker, CI with an offline end-to-end render test |
+
+---
+
+## 🔄 How it works
 
 ```
-Topic Selection → AI Script → Neural Voiceover → Stock Footage → Video Assembly → Auto Upload → Repeat
+Topic ─▶ AI script ─▶ Neural voice + word timings ─▶ Footage per scene ─▶ Captions & overlays ─▶ ffmpeg render ─▶ Upload / schedule ─▶ repeat
 ```
 
-| Step | What Happens | Technology |
-|------|-------------|------------|
-| 1. **Topic** | Randomly picks from 20+ content categories | Built-in category engine |
-| 2. **Script** | GPT writes a retention-optimized short-form script | OpenAI GPT-3.5 |
-| 3. **Voice** | Neural TTS produces natural, human-like voiceover | Coqui TTS |
-| 4. **Footage** | Fetches relevant stock clips from multiple sources | Pexels + Pixabay APIs |
-| 5. **Assembly** | Composites footage, animated subtitles, background music | MoviePy + ImageMagick |
-| 6. **Hashtags** | AI generates trending, category-relevant tags | OpenAI GPT |
-| 7. **Upload** | Publishes to YouTube with optimized metadata | YouTube Data API v3 |
-
-The entire pipeline repeats automatically — producing Shorts 24/7 without intervention.
+| Step | What happens |
+|------|-------------|
+| 1. **Topic** | Picked from your niches, today's Google Trends, Wikipedia "On this day", Reddit TIL (best-effort, since Reddit rate-limits anonymous requests) or `topics.txt`, skipping anything already made and news about deaths, violence or elections |
+| 2. **Script** | The LLM writes a hook-first script split into scenes, each with its own stock-footage query and AI-image prompt, plus title, description, hashtags, tags and category, all in one JSON reply |
+| 3. **Voice** | Neural TTS speaks the whole script and returns per-word timestamps (or they are aligned/estimated) |
+| 4. **Footage** | Each scene gets its own clip: Pexels / Pixabay video (portrait preferred), photos with Ken Burns motion, your own `media/` folder, or AI images, with an animated gradient as the last resort |
+| 5. **Captions** | 2–3-word captions appear exactly when spoken, with the current word highlighted |
+| 6. **Render** | Scenes are cover-cropped to 9:16, colour-graded and joined with transitions; hook title, watermark, progress bar, end CTA, ducked music and −14 LUFS loudness are added in one ffmpeg pass |
+| 7. **Publish** | Uploaded now, or scheduled into your next free time slot, with the synthetic-media disclosure set; queued automatically when the daily quota is used up |
 
 ---
 
-## ✨ Features
+## 🚀 Quick start
 
-| Feature | Description |
-|---------|-------------|
-| **Fully autonomous** | Set it and forget it — generates Shorts continuously in a loop |
-| **Neural TTS** | Coqui TTS for natural, studio-quality AI voiceovers |
-| **Multi-source footage** | Pulls from both Pexels and Pixabay for diverse visuals |
-| **Smart subtitles** | Word-wrapped, fade-animated captions synced to timing |
-| **Background music** | Audio-loops a background track under the voiceover |
-| **AI hashtags** | GPT generates trending hashtags per video category |
-| **20+ categories** | Mystery, science, true crime, tech, finance, motivation, and more |
-| **Auto upload** | Direct YouTube publishing with titles, descriptions, and tags |
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Python 3.9+
-- [ImageMagick](https://imagemagick.org/script/download.php) installed
-- API keys: [OpenAI](https://platform.openai.com/api-keys), [Pexels](https://www.pexels.com/api/), [Pixabay](https://pixabay.com/api/docs/)
-- Google OAuth credentials for YouTube upload
-
-### Install & Run
+**Needs:** Python 3.10+. ffmpeg is used if installed; if not, the bundled `imageio-ffmpeg` binary is used. ImageMagick is no longer needed.
 
 ```bash
-# Clone
 git clone https://github.com/Chamanrajragu/purffle-shorts.git
 cd purffle-shorts
-
-# Setup
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-
-# Configure
-cp .env.example .env
-# Edit .env → add your API keys
-
-# Run
-python YT.py
+python -m venv venv && source venv/bin/activate      # Windows: venv\Scripts\activate
+pip install -e .                                     # or: pip install -r requirements.txt
 ```
 
-The bot starts generating and uploading Shorts autonomously.
+**1. See it work with no keys at all.** This renders a sample Short with an offline script, a free neural voice and generated backgrounds:
+
+```bash
+python -m purffle_shorts demo
+```
+
+**2. Configure.** Copy `.env.example` to `.env`, add **one** LLM key (or run Ollama) and a Pexels and/or Pixabay key, then run the self-check:
+
+```bash
+python -m purffle_shorts doctor
+```
+
+**3. Make one video** (kept locally, not uploaded):
+
+```bash
+python -m purffle_shorts make --topic "why octopuses have three hearts" --no-upload
+```
+
+**4. Connect YouTube once.** Create an OAuth client of type *Desktop app* in Google Cloud Console with the YouTube Data API v3 enabled, save it as `credentials.json`, then:
+
+```bash
+python -m purffle_shorts auth
+```
+
+**5. Autopilot:**
+
+```bash
+python -m purffle_shorts run          # or the old way:  python YT.py
+```
 
 ---
 
-## 🔑 Environment Variables
+## 🧠 AI models
 
-| Variable | Required | Description |
-|----------|:--------:|-------------|
-| `OPENAI_API_KEY` | ✅ | OpenAI API key for scripts and hashtags |
-| `PEXELS_API_KEY` | ✅ | Pexels API key for stock footage |
-| `PIXABAY_API_KEY` | ✅ | Pixabay API key for additional footage |
+Set `LLM_PROVIDER` and `LLM_MODEL` in `.env`, or pass `--provider` / `--model`. With `LLM_PROVIDER=auto` the first key found is used. `LLM_FALLBACKS=anthropic,gemini` retries with other providers when the main one fails. Any model a provider offers works; the defaults are only starting points.
+
+| Provider | `LLM_PROVIDER` | Key | Default model |
+|---|---|---|---|
+| OpenAI | `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` (GPT-5 / o-series supported) |
+| Anthropic Claude | `anthropic` | `ANTHROPIC_API_KEY` | `claude-opus-5` (structured JSON output) |
+| Google Gemini | `gemini` | `GEMINI_API_KEY` | `gemini-2.5-flash` |
+| Groq | `groq` | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
+| OpenRouter | `openrouter` | `OPENROUTER_API_KEY` | `openai/gpt-4o-mini`, or any of its hundreds of models |
+| DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+| Mistral | `mistral` | `MISTRAL_API_KEY` | `mistral-small-latest` |
+| Together AI | `together` | `TOGETHER_API_KEY` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
+| xAI | `xai` | `XAI_API_KEY` | `grok-3-mini` |
+| Ollama (local, free) | `ollama` | — | `llama3.1` |
+| LM Studio (local, free) | `lmstudio` | — | whatever is loaded |
+| Anything OpenAI-compatible | `custom` | `LLM_API_KEY` + `LLM_BASE_URL` | `LLM_MODEL` |
+
+`python -m purffle_shorts providers` shows which providers are ready.
 
 ---
 
-## 🎯 Content Categories
+## 🎙️ Voices
 
-The bot randomly selects from these categories for maximum variety:
+| Engine | `TTS_ENGINE` | Cost | Word timing |
+|---|---|---|---|
+| Microsoft neural voices (edge-tts) | `edge` *(default)* | Free, no key | Native |
+| OpenAI `gpt-4o-mini-tts` / `tts-1-hd` | `openai` | Paid | Aligned or estimated |
+| ElevenLabs | `elevenlabs` | Paid | Native |
+| Kokoro-82M (open weights, local) | `kokoro` | Free, `pip install kokoro soundfile` | Aligned or estimated |
+| Coqui TTS (local) | `coqui` | Free, `pip install coqui-tts` | Aligned or estimated |
+| OS voice (`say` / espeak-ng / SAPI) | `system` | Free, offline | Estimated |
 
-`Mystery` · `Horror Stories` · `Science` · `True Crime` · `Tech Trends` · `Finance Tips` · `Space Exploration` · `Psychology` · `Motivational` · `Self-Improvement` · `History Mysteries` · `Fun Facts` · `Cars` · `Trending News` · `Interesting People` · `Philosophy` · `Nature` · `Gaming` · `Health` · `AI & Future`
+- `python -m purffle_shorts voices --lang en` lists every free voice. Set `TTS_VOICE=en-US-GuyNeural`, or a comma list to rotate voices between videos.
+- `LANGUAGE=es` (or `hi`, `ta`, `fr`, `pt`, `ja`, …) switches the script, the voice and the caption font together. Tamil, Hindi, Arabic, Thai and similar scripts are rendered through libass so they are shaped correctly.
+- `pip install faster-whisper` gives precise word timing for engines without native timestamps (`ALIGN=auto`).
+- If the chosen engine fails, the video falls back to the free edge voice instead of failing.
 
 ---
 
-## 🏗️ Tech Stack
+## 🎨 Captions & look
+
+| Setting | Options |
+|---|---|
+| `CAPTION_STYLE` | `bold` (yellow active word) · `boxed` (active word in a colour box) · `neon` (glow) · `clean` · `karaoke` · `minimal` |
+| `CAPTION_POSITION` | `upper` · `center` · `lower` |
+| `COLOR_GRADE` | `none` · `vivid` · `cinematic` · `warm` · `cool` · `bw` |
+| `TRANSITION` | `random` · `none` · `fade` · `slideup` · `smoothleft` · `circleopen` · `zoomin` · … |
+| Overlays | Hook title (`HOOK_OVERLAY`), watermark (`WATERMARK`, defaults to `CHANNEL_NAME`), progress bar (`PROGRESS_BAR`), end call-to-action (`END_CTA`) |
+| Music | Drop tracks in `music/` (a random one is picked per video; `back.mp3` still works); `MUSIC_VOLUME`, `MUSIC_DUCKING` |
+| Output | `RESOLUTION=1080x1920`, `FPS=30`, `VIDEO_ENCODER=libx264` · `h264_videotoolbox` (Mac) · `h264_nvenc` (NVIDIA) · `auto` |
+
+The caption font is downloaded once from Google Fonts (Anton for Latin scripts, Noto Sans for other scripts). Set `CAPTION_FONT=/path/font.ttf` to use your own.
+
+**Visual sources** (`VISUAL_SOURCES`, tried in order per scene): `pexels`, `pixabay`, `local` (your `media/` folder, matched by filename keywords), `openai-images` (gpt-image-1 / DALL·E 3), `pollinations` (free AI images, no key).
+
+---
+
+## 📅 Publishing & scheduling
+
+- `YT_PRIVACY=public|unlisted|private`.
+- `PUBLISH_TIMES=09:00,14:00,19:00` with `TIMEZONE=Asia/Kolkata` uploads each video as private and schedules it into the next free slot. Render in bulk, release on schedule.
+- **Quota-aware.** An upload costs 1,600 of the default 10,000 daily API units, so `YT_DAILY_LIMIT=6`. Extra videos are queued and uploaded after the quota resets at midnight Pacific time. On autopilot the queue is drained first, and production waits instead of piling up.
+- `SYNTHETIC_MEDIA=true` sets YouTube's *altered or synthetic content* disclosure. `MADE_FOR_KIDS`, `PLAYLIST_ID` and category (chosen by the AI) are set too.
+- Each video's folder holds `short.mp4`, `cover.jpg`, `captions.srt`, `script.json` and `metadata.json`, ready to cross-post to TikTok or Reels. `KEEP_VIDEOS=false` deletes the MP4 after a successful upload.
+
+---
+
+## 💻 Command line
+
+```bash
+python -m purffle_shorts <command> [options]        # or `purffle-shorts <command>` after pip install
+```
+
+| Command | What it does |
+|---|---|
+| `run` | Autopilot loop. `--count N`, `--once`, `--batch`, `--workers`, `--delay` |
+| `make` | Make one video now. `--topic "…"`, `--count N` |
+| `demo` | Render a sample with no API keys |
+| `upload` | `--pending` uploads everything not yet on YouTube; `--id N` uploads one |
+| `auth` | Connect your YouTube channel |
+| `doctor` | Check ffmpeg, keys, fonts, YouTube setup |
+| `providers` / `voices` | List LLM providers / free voices |
+| `history` | Everything made so far, with links |
+| `studio` | Local web dashboard |
+
+Common options: `--source trending|wikipedia|reddit|file|niche`, `--niche "space"`, `--style facts|story|listicle|myth|quiz|explainer|motivational|news`, `--lang`, `--duration 45`, `--provider`, `--model`, `--tts`, `--voice`, `--visuals`, `--caption-style`, `--grade`, `--transition`, `--resolution`, `--no-music`, `--no-upload`, `--privacy`, `--publish-times`, `--env-file`.
+
+**Several channels:** keep one settings file per channel (niche, voice, `YT_TOKEN_FILE`, `DATA_DIR`) and run `python -m purffle_shorts run --env-file .env.channel2`.
+
+**Upgrading from 1.x:** `python YT.py`, `--once`, `--no-upload`, `--count N` and the old `SHORTS_*` variables still work, and `token.pickle` is migrated to `token.json` automatically. Install the new requirements first.
+
+---
+
+## 🖥️ Studio (web dashboard)
+
+```bash
+python -m purffle_shorts studio        # opens http://127.0.0.1:8765
+```
+
+Create Shorts from a form (topic, format, language, voice, caption style, model), watch the log live, preview renders in the browser, and upload with one click. It listens on localhost only, and every action needs a per-session token.
+
+---
+
+## 🐳 Docker
+
+```bash
+docker build -t purffle-shorts .
+docker run --rm -it --env-file .env -v "$PWD:/work" purffle-shorts run
+```
+
+Run `auth` once on your own computer so `token.json` exists in the mounted folder.
+
+---
+
+## 🏗️ Tech stack
 
 | Component | Technology |
-|-----------|-----------|
-| **AI Script** | OpenAI GPT-3.5 Turbo |
-| **Voice** | Coqui TTS (neural text-to-speech) |
-| **Video** | MoviePy, ImageMagick, Pillow |
-| **Stock Media** | Pexels API, Pixabay API |
-| **Upload** | YouTube Data API v3, OAuth 2.0 |
-| **Language** | Python 3.9+ |
+|---|---|
+| Script | Any LLM: OpenAI-compatible HTTP, plus the Anthropic SDK with structured outputs |
+| Voice | edge-tts, OpenAI, ElevenLabs, Kokoro, Coqui, OS voices; optional faster-whisper alignment |
+| Video | ffmpeg (xfade, zoompan, sidechaincompress, loudnorm, libass), Pillow caption renderer |
+| Media | Pexels, Pixabay, local files, OpenAI Images, Pollinations |
+| Upload | YouTube Data API v3, OAuth 2.0, resumable uploads |
+| State | SQLite history (topics, clips, uploads, schedule) |
 
 ---
 
-## 📁 Project Structure
+## 📁 Project structure
 
 ```
 purffle-shorts/
-├── YT.py                  # Main automation engine
-├── el.py                  # Extended logic module
-├── ytt.py                 # YouTube upload helpers
-├── requirements.txt       # Python dependencies
-├── .env.example           # API key template
-└── output_videos/         # Generated Shorts (gitignored)
+├── YT.py                    # 1.x-compatible entry point (python YT.py)
+├── purffle_shorts/
+│   ├── cli.py               # commands: run, make, demo, upload, auth, doctor, studio, ...
+│   ├── pipeline.py          # topic → script → voice → footage → render → upload
+│   ├── llm.py               # 12 LLM providers + fallback chain
+│   ├── script.py            # prompt, JSON schema, clean-up, offline writer
+│   ├── tts.py               # voice engines + word alignment
+│   ├── timing.py            # word timing, scene timeline, caption chunks, SRT
+│   ├── media.py             # Pexels / Pixabay / local / AI images, de-duplication
+│   ├── overlays.py          # captions (Pillow + libass), hook, watermark, CTA, fonts
+│   ├── render.py            # ffmpeg segments, transitions, grading, audio mix
+│   ├── youtube.py           # OAuth, upload, scheduling, quota
+│   ├── topics.py            # niches, Google Trends, Wikipedia, Reddit, topics.txt
+│   ├── history.py           # SQLite history
+│   └── studio.py            # local web dashboard
+├── tests/                   # unit + offline end-to-end render tests
+├── .env.example             # every setting, documented
+├── Dockerfile
+└── output_videos/           # renders (gitignored)
 ```
+
+---
+
+## 🛠️ Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `No LLM is configured` | Add one key to `.env` (or start Ollama), then run `doctor` |
+| Every scene is a gradient | Add `PEXELS_API_KEY` / `PIXABAY_API_KEY`, or put clips in `media/`, or add `pollinations` to `VISUAL_SOURCES` |
+| `YouTube is not authorized` | Run `python -m purffle_shorts auth` |
+| Videos stay `queued` | The daily quota is used up; they upload after midnight Pacific. Run `upload --pending` to retry now |
+| A video failed and the log is too short | Run with `-v` for full tracebacks (also written to `data/logs/purffle.log`) |
+| Wrong-looking non-Latin captions | Install an ffmpeg with libass (Homebrew and apt builds include it); `doctor` shows whether yours has it |
 
 ---
 
 ## ⚠️ Disclaimer
 
-> This is an open-source automation tool for educational purposes. Requires your own API keys. Always review AI-generated content before publishing. Comply with YouTube's Terms of Service and Community Guidelines. Not affiliated with YouTube, OpenAI, Pexels, or Pixabay.
+> This is an open-source automation tool for educational purposes. It needs your own API keys. Review AI-generated content before publishing, keep the synthetic-media disclosure on, and follow YouTube's Terms of Service and Community Guidelines. Not affiliated with YouTube, OpenAI, Anthropic, Google, Microsoft, Pexels or Pixabay.
 
 ---
 
