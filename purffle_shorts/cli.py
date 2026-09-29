@@ -5,21 +5,22 @@ from __future__ import annotations
 import argparse
 import logging
 import logging.handlers
+import os
 import sys
 from pathlib import Path
 
 from . import __version__
-from .config import Settings, load_env, parse_resolution
+from .config import ASPECTS, ConfigError, Settings, aspect_resolution, load_env, parse_resolution
 
 log = logging.getLogger("purffle")
 
 
-def setup_logging(settings: Settings, verbose: bool = False) -> None:
+def setup_logging(settings: Settings, verbose: bool = False, stream=None) -> None:
     root = logging.getLogger()
     if root.handlers:
         return
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S")
-    console = logging.StreamHandler(sys.stdout)
+    console = logging.StreamHandler(stream or sys.stdout)
     console.setFormatter(fmt)
     if hasattr(sys.stdout, "reconfigure"):
         try:
@@ -41,21 +42,26 @@ def setup_logging(settings: Settings, verbose: bool = False) -> None:
 def _common(p: argparse.ArgumentParser) -> None:
     g = p.add_argument_group("content & models")
     g.add_argument("--topic", help="make a video about exactly this")
-    g.add_argument("--source", choices=["niche", "trending", "wikipedia", "reddit", "file"], help="topic source")
+    g.add_argument("--source", choices=["niche", "trending", "wikipedia", "reddit", "rss", "file", "queue"],
+                   help="topic source")
     g.add_argument("--niche", action="append", help="niche to pick topics from (repeatable)")
-    g.add_argument("--style", help="facts|story|listicle|myth|quiz|motivational|news|explainer|auto")
+    g.add_argument("--style", help="facts|story|listicle|myth|quiz|motivational|news|explainer|dialogue|chat|auto")
     g.add_argument("--lang", dest="language", help="language code, e.g. en, es, hi, ta, fr, ja")
     g.add_argument("--duration", dest="target_seconds", type=int, help="target length in seconds (15-170)")
     g.add_argument("--provider", dest="llm_provider", help="LLM provider (see `providers`)")
     g.add_argument("--model", dest="llm_model", help="LLM model name")
     g.add_argument("--tts", dest="tts_engine", help="edge|openai|elevenlabs|kokoro|coqui|system|silent")
     g.add_argument("--voice", dest="tts_voice", help="voice name/id (comma list = rotate)")
+    g.add_argument("--voice-b", dest="tts_voice_b", help="second speaker's voice (dialogue and chat formats)")
+    g.add_argument("--no-review", action="store_true", help="skip the Script Doctor's second pass")
+    g.add_argument("--also-lang", help="also make translated copies, e.g. es,hi (same footage)")
     g.add_argument("--visuals", help="comma list: pexels,pixabay,local,openai-images,pollinations")
     r = p.add_argument_group("look & output")
     r.add_argument("--caption-style", help="bold|boxed|neon|clean|karaoke|minimal")
     r.add_argument("--caption-position", help="upper|center|lower")
     r.add_argument("--grade", dest="color_grade", help="none|vivid|cinematic|warm|cool|bw")
     r.add_argument("--transition", help="random|none|fade|slideup|circleopen|...")
+    r.add_argument("--aspect", choices=list(ASPECTS), help="9:16 Short/Reel, 16:9 YouTube, 1:1 or 4:5 feed")
     r.add_argument("--resolution", help="e.g. 1080x1920 or 720x1280")
     r.add_argument("--fps", type=int)
     r.add_argument("--encoder", dest="video_encoder", help="libx264|h264_videotoolbox|h264_nvenc|auto")
@@ -73,13 +79,20 @@ def build_settings(args: argparse.Namespace) -> Settings:
     s = Settings.from_env()
     ov = {k: getattr(args, k, None) for k in (
         "style", "language", "target_seconds", "llm_provider", "llm_model", "tts_engine", "tts_voice",
-        "caption_style", "caption_position", "color_grade", "transition", "fps", "video_encoder", "privacy")}
+        "tts_voice_b", "caption_style", "caption_position", "color_grade", "transition", "fps", "video_encoder",
+        "privacy")}
     if getattr(args, "niche", None):
         ov["niches"] = args.niche
     if getattr(args, "visuals", None):
         ov["visual_sources"] = [v.strip().lower() for v in args.visuals.split(",") if v.strip()]
+    if getattr(args, "aspect", None):
+        ov["resolution"] = aspect_resolution(args.aspect)
     if getattr(args, "resolution", None):
         ov["resolution"] = parse_resolution(args.resolution)
+    if getattr(args, "no_review", False):
+        ov["script_review"] = "off"
+    if getattr(args, "also_lang", None):
+        ov["also_languages"] = [x.strip().lower() for x in args.also_lang.split(",") if x.strip()]
     if getattr(args, "no_music", False):
         ov["music_volume"] = 0.0
     if getattr(args, "no_upload", False):
@@ -110,21 +123,28 @@ def cmd_make(args, s: Settings) -> int:
     studio = Studio(s)
     ok = 0
     for _ in range(max(1, args.count or 1)):
-        r = studio.make(args.topic, source=args.source, script_file=args.script)
-        if r.ok:
-            ok += 1
-            print(f"\n✔ {r.title}\n  folder: {r.folder}\n  status: {r.status}"
-                  + (f"\n  https://youtube.com/shorts/{r.youtube_id}" if r.youtube_id else ""))
-        else:
-            print(f"\n✘ failed: {r.error}")
+        r = studio.make(args.topic, source=args.source, script_file=args.script, url=args.url,
+                        document=args.from_file)
+        for x in [r, *r.variants]:
+            ok += x.ok
+            print_result(x)
     return 0 if ok else 1
+
+
+def print_result(r) -> None:
+    if not r.ok:
+        print(f"\n✘ {r.language + ' ' if r.language else ''}failed: {r.error}")
+        return
+    score = f"\n  retention score: {r.score}/100" if r.score is not None else ""
+    print(f"\n✔ {r.title}\n  folder: {r.folder}\n  status: {r.status}{score}"
+          + (f"\n  https://youtube.com/shorts/{r.youtube_id}" if r.youtube_id else ""))
 
 
 def cmd_demo(args, s: Settings) -> int:
     from .pipeline import Studio
     s = s.with_overrides(offline=True, upload=False)
     print("Demo: offline script + free neural voice + generated backgrounds. No API keys used.\n")
-    r = Studio(s).make(args.topic)
+    r = Studio(s).make(args.topic, style=s.style if s.style != "auto" else None)
     if r.ok:
         print(f"\n✔ Demo video: {r.video}\n  (cover.jpg, captions.srt and metadata.json are next to it)")
         return 0
@@ -147,7 +167,7 @@ def cmd_upload(args, s: Settings) -> int:
 
 def cmd_auth(args, s: Settings) -> int:
     from . import youtube
-    youtube.get_credentials(s, interactive=True)
+    youtube.get_credentials(s, interactive=True, extra_scopes=youtube.auth_scopes(s))
     print(f"✔ YouTube authorized. Token saved to {s.token_file}")
     return 0
 
@@ -198,76 +218,13 @@ def cmd_voices(args, s: Settings) -> int:
 
 
 def cmd_doctor(args, s: Settings) -> int:
-    from . import ffmpeg
-    from .llm import LLMError, build_provider, ollama_has, ollama_models, resolve_provider_name
-    ok = True
-
-    def line(good: bool | None, label: str, detail: str = ""):
-        mark = {True: "✔", False: "✘", None: "•"}[good]
-        print(f" {mark} {label}{': ' + detail if detail else ''}")
-
+    from .doctor import checks
     print(f"PurffleShorts {__version__} — environment check\n")
-    line(sys.version_info >= (3, 10), "Python", sys.version.split()[0])
-    try:
-        line(True, "ffmpeg", f"{ffmpeg.version()} ({ffmpeg.ffmpeg_bin()})")
-        for flt in ("xfade", "sidechaincompress", "loudnorm", "zoompan"):
-            if not ffmpeg.has_filter(flt):
-                ok = False
-                line(False, f"ffmpeg filter {flt}", "missing — update ffmpeg (6.0+ recommended)")
-        line(True if ffmpeg.has_filter("ass") else None, "libass (complex-script captions)",
-             "available" if ffmpeg.has_filter("ass") else "not in this ffmpeg build")
-    except Exception as e:
-        ok = False
-        line(False, "ffmpeg", str(e))
-    try:
-        name = resolve_provider_name(s)
-        prov = build_provider(name, s, s.llm_model)
-        model = getattr(prov, "model", s.llm_model or "default")
-        installed = ollama_models(prov.base_url) if name == "ollama" else []
-        if installed is None:
-            ok = False
-            line(False, "LLM", f"ollama is not running at {prov.base_url} (start it with: ollama serve)")
-        elif name == "ollama" and not ollama_has(installed, model):
-            ok = False
-            line(False, "LLM", f"ollama model '{model}' is not pulled. Run: ollama pull {model}"
-                 + (f"  (installed: {', '.join(installed)})" if installed else ""))
-        else:
-            line(True, "LLM", f"{name} (model: {model})")
-    except LLMError as e:
-        ok = False
-        line(False, "LLM", str(e))
-    line(True, "Voice", s.tts_engine + (f" / {s.tts_voice}" if s.tts_voice else ""))
-    if s.tts_engine == "elevenlabs" and not s.elevenlabs_api_key:
-        ok = False
-        line(False, "ElevenLabs key", "ELEVENLABS_API_KEY missing")
-    usable = 0
-    for src in s.visual_sources:
-        need = {"pexels": s.pexels_api_key, "pixabay": s.pixabay_api_key,
-                "openai-images": s.openai_api_key}.get(src, "n/a")
-        usable += bool(need)
-        line(True if need else None, f"Visual source {src}",
-             "key found" if need and need != "n/a" else ("no key needed" if need == "n/a" else "API key missing"))
-    if not usable:
-        ok = False
-        line(False, "Footage", "no usable visual source — every scene would be an animated gradient. Add a "
-             "Pexels/Pixabay key, or add pollinations to VISUAL_SOURCES for free AI images (no key)")
-    try:
-        import edge_tts  # noqa: F401
-        line(True, "edge-tts", "installed")
-    except ImportError:
-        line(s.tts_engine != "edge", "edge-tts", "not installed (pip install edge-tts)")
-    from .render import pick_music
-    m = pick_music(s)
-    line(None, "Music", str(m) if m else f"none (add tracks to {s.music_dir}/)")
-    if s.upload:
-        cs = Path(s.client_secrets).exists()
-        tok = Path(s.token_file).exists() or Path("token.pickle").exists()
-        line(cs or tok, "YouTube OAuth client", s.client_secrets if cs else "credentials.json missing")
-        line(tok if cs else None, "YouTube token", "found" if tok else "run: python -m purffle_shorts auth")
-        line(None, "Publishing", f"{s.privacy}" + (f", scheduled at {', '.join(s.publish_times)}" if s.publish_times
-                                                  else "") + f", max {s.daily_upload_limit}/day")
-    else:
-        line(None, "Upload", "disabled (UPLOAD=false)")
+    results = checks(s)
+    for c in results:
+        mark = {True: "✔", False: "✘", None: "•"}[c["ok"]]
+        print(f" {mark} {c['label']}{': ' + c['detail'] if c['detail'] else ''}")
+    ok = all(c["ok"] is not False for c in results)
     print("\nAll good." if ok else "\nFix the ✘ items above, then run again.")
     return 0 if ok else 1
 
@@ -275,6 +232,78 @@ def cmd_doctor(args, s: Settings) -> int:
 def cmd_studio(args, s: Settings) -> int:
     from .studio import serve
     serve(s, host=args.host, port=args.port, open_browser=not args.no_browser)
+    return 0
+
+
+def cmd_plan(args, s: Settings) -> int:
+    from . import analytics
+    from .pipeline import Studio
+    from .planner import plan_ideas
+    studio = Studio(s)
+    insights = analytics.insights(studio.history) if s.learn_from_stats else ""
+    ideas = plan_ideas(studio.llm, s, studio.history, args.count, args.niche, insights)
+    for i in ideas:
+        print(f"{i['id']:>4}  {i['style'] or 'auto':12} {i['subject']}\n      {i['notes']}")
+    queued = len(studio.history.ideas("pending"))
+    print(f"\n{len(ideas)} idea(s) added. {queued} waiting in the queue; `run` and `make` use them first.")
+    return 0 if ideas else 1
+
+
+def cmd_ideas(args, s: Settings) -> int:
+    from .history import History
+    h = History(s.data_path / "history.db")
+    if args.add:
+        print(f"Added idea #{h.add_idea(args.add, args.style or '')}")
+        return 0
+    if args.remove:
+        h.delete_idea(args.remove)
+        print(f"Removed idea #{args.remove}")
+        return 0
+    if args.clear:
+        for i in h.ideas("pending"):
+            h.delete_idea(i["id"])
+        print("Queue cleared.")
+        return 0
+    rows = h.ideas("pending")
+    if not rows:
+        print("The idea queue is empty. Fill it with:  purffle-shorts plan --count 10")
+        return 0
+    for i in rows:
+        print(f"{i['id']:>4}  {i['style'] or 'auto':12} {i['subject']}" + (f"\n      {i['notes']}" if i["notes"] else ""))
+    return 0
+
+
+def cmd_clip(args, s: Settings) -> int:
+    from .clipper import make_clips
+    from .pipeline import Studio
+    results = make_clips(Studio(s), args.source, count=args.count, crop=args.crop,
+                         min_seconds=args.min_seconds, max_seconds=args.max_seconds)
+    for r in results:
+        print_result(r)
+    return 0 if any(r.ok for r in results) else 1
+
+
+def cmd_stats(args, s: Settings) -> int:
+    from .analytics import sync_stats
+    from .history import History
+    h = History(s.data_path / "history.db")
+    n = sync_stats(s, h)
+    rows = [r for r in h.recent(500) if r.get("views") is not None]
+    if not rows:
+        print("No stats yet." + ("" if n else " Upload some videos first, and set YOUTUBE_API_KEY or run `auth` "
+                                         "again with LEARN_FROM_STATS=true."))
+        return 0 if n or not h.live_video_ids() else 1
+    rows.sort(key=lambda r: r["views"], reverse=True)
+    print(f"{'VIEWS':>9} {'LIKES':>7} {'SCORE':>5}  TITLE")
+    for r in rows[:args.limit]:
+        score = r["score"] if r.get("score") is not None else "-"
+        print(f"{r['views']:>9,} {r['likes'] or 0:>7,} {score:>5}  {r['title']}")
+    return 0
+
+
+def cmd_mcp(args, s: Settings) -> int:
+    from .mcp_server import Server
+    Server(s).serve()
     return 0
 
 
@@ -297,7 +326,43 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--count", type=int, default=1)
     m.add_argument("--script", metavar="FILE",
                    help="render your own script JSON (e.g. an edited script.json) instead of asking the LLM")
+    m.add_argument("--url", help="make the video from a web page (article, blog post, docs)")
+    m.add_argument("--from-file", metavar="FILE", help="make the video from a .txt/.md/.html document")
     m.set_defaults(func=cmd_make)
+
+    c = sub.add_parser("clip", help="cut a long video (file or URL) into captioned Shorts of its best moments")
+    _common(c)
+    c.add_argument("source", help="video file, or a URL (needs: pip install yt-dlp)")
+    c.add_argument("--count", type=int, default=3, help="how many clips (default 3)")
+    c.add_argument("--crop", choices=["center", "blur"], default="center",
+                   help="center = fill the frame; blur = whole picture over a blurred copy")
+    c.add_argument("--min-seconds", type=int, default=20)
+    c.add_argument("--max-seconds", type=int, default=58)
+    c.set_defaults(func=cmd_clip)
+
+    pl = sub.add_parser("plan", help="let the AI plan a batch of video ideas into the queue")
+    _common(pl)
+    pl.add_argument("--count", type=int, default=10)
+    pl.set_defaults(func=cmd_plan)
+
+    ide = sub.add_parser("ideas", help="show or edit the idea queue")
+    ide.add_argument("--add", metavar="SUBJECT", help="queue an idea")
+    ide.add_argument("--style", help="format for --add")
+    ide.add_argument("--remove", type=int, metavar="ID")
+    ide.add_argument("--clear", action="store_true", help="remove every pending idea")
+    ide.add_argument("--env-file")
+    ide.set_defaults(func=cmd_ideas)
+
+    stt = sub.add_parser("stats", help="refresh and show view counts of your uploaded videos")
+    stt.add_argument("--limit", type=int, default=25)
+    stt.add_argument("--env-file")
+    stt.add_argument("-v", "--verbose", action="store_true")
+    stt.set_defaults(func=cmd_stats)
+
+    mc = sub.add_parser("mcp", help="run as an MCP server (stdio) for Claude Desktop, Claude Code, Cursor...")
+    mc.add_argument("--env-file")
+    mc.add_argument("-v", "--verbose", action="store_true")
+    mc.set_defaults(func=cmd_mcp)
 
     d = sub.add_parser("demo", help="render a sample Short with no API keys")
     _common(d)
@@ -342,8 +407,16 @@ def main(argv: list[str] | None = None) -> int:
     if not getattr(args, "command", None):
         parser.print_help()
         return 0
-    s = build_settings(args)
-    setup_logging(s, getattr(args, "verbose", False))
+    home = os.getenv("PURFFLE_HOME")
+    if home:
+        os.chdir(Path(home).expanduser())
+    try:
+        s = build_settings(args)
+    except ConfigError as e:
+        print(f"Setting problem: {e}", file=sys.stderr)
+        return 2
+    # MCP speaks JSON-RPC on stdout, so its logs go to stderr.
+    setup_logging(s, getattr(args, "verbose", False), sys.stderr if args.command == "mcp" else None)
     try:
         return args.func(args, s)
     except KeyboardInterrupt:

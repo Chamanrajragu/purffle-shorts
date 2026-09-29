@@ -1,5 +1,9 @@
 """AI scriptwriting: one LLM call returns the whole Short — hook, scenes with per-scene footage
-queries, title, description, hashtags and tags — so everything describes the same video."""
+queries, title, description, hashtags and tags — so everything describes the same video.
+
+A second call, the Script Doctor, scores the draft for retention and rewrites what is weak. Scripts can
+also be translated for multi-language channels, and two-speaker formats (dialogue, chat) carry a
+speaker per scene so each line gets its own voice."""
 
 from __future__ import annotations
 
@@ -7,7 +11,7 @@ import json
 import logging
 import random
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 from .config import Settings
@@ -32,8 +36,14 @@ STYLES = {
     "motivational": "A punchy real-life micro-story or principle that ends with a memorable one-line takeaway.",
     "news": "Explain a current story neutrally: what happened, why it matters, what happens next.",
     "explainer": "Explain one idea so a 12-year-old gets it, using one vivid analogy.",
+    "dialogue": "A fast back-and-forth between two people, A and B. A is curious or skeptical and asks; B "
+                "answers with surprising, specific facts. The last line is a punchline.",
+    "chat": "A text-message conversation between A and B that tells a gripping story in real time, with "
+            "a twist near the end. Written exactly like real texts: short, casual, emotional.",
 }
+MULTI_SPEAKER = {"dialogue", "chat"}
 AUTO_STYLES = ["facts", "facts", "story", "story", "listicle", "myth", "quiz", "explainer"]
+DEFAULT_CAST = {"dialogue": ["Alex", "Sam"], "chat": ["Unknown", "Me"]}
 
 # YouTube video category ids
 CATEGORIES = {
@@ -42,31 +52,49 @@ CATEGORIES = {
     "film": "1", "music": "10", "pets": "15",
 }
 
+SCENE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "speaker": {"type": "string", "enum": ["A", "B"]},
+        "narration": {"type": "string"},
+        "search_query": {"type": "string"},
+        "image_prompt": {"type": "string"},
+    },
+    "required": ["speaker", "narration", "search_query", "image_prompt"],
+    "additionalProperties": False,
+}
+
 SCRIPT_SCHEMA = {
     "type": "object",
     "properties": {
         "topic": {"type": "string"},
         "title": {"type": "string"},
         "hook_text": {"type": "string"},
-        "scenes": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "narration": {"type": "string"},
-                    "search_query": {"type": "string"},
-                    "image_prompt": {"type": "string"},
-                },
-                "required": ["narration", "search_query", "image_prompt"],
-                "additionalProperties": False,
-            },
-        },
+        "cast": {"type": "array", "items": {"type": "string"}},
+        "scenes": {"type": "array", "items": SCENE_SCHEMA},
         "description": {"type": "string"},
         "hashtags": {"type": "array", "items": {"type": "string"}},
         "tags": {"type": "array", "items": {"type": "string"}},
         "category": {"type": "string", "enum": list(CATEGORIES)},
     },
-    "required": ["topic", "title", "hook_text", "scenes", "description", "hashtags", "tags", "category"],
+    "required": ["topic", "title", "hook_text", "cast", "scenes", "description", "hashtags", "tags", "category"],
+    "additionalProperties": False,
+}
+
+REVIEW_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "score": {"type": "integer"},
+        "issues": {"type": "array", "items": {"type": "string"}},
+        "script": SCRIPT_SCHEMA,
+    },
+    "required": ["score", "issues", "script"],
+    "additionalProperties": False,
+}
+SCORE_SCHEMA = {
+    "type": "object",
+    "properties": {"score": {"type": "integer"}, "issues": {"type": "array", "items": {"type": "string"}}},
+    "required": ["score", "issues"],
     "additionalProperties": False,
 }
 
@@ -78,6 +106,7 @@ class Scene:
     narration: str
     search_query: str
     image_prompt: str = ""
+    speaker: str = "A"
 
 
 @dataclass
@@ -92,6 +121,9 @@ class Script:
     category: str = "education"
     style: str = "facts"
     language: str = "en"
+    cast: list[str] = field(default_factory=list)
+    score: int | None = None           # Script Doctor retention score (0-100)
+    review: list[str] = field(default_factory=list)  # what the Script Doctor found
 
     @property
     def narration(self) -> str:
@@ -101,13 +133,23 @@ class Script:
     def category_id(self) -> str:
         return CATEGORIES.get(self.category, "27")
 
+    @property
+    def multi_speaker(self) -> bool:
+        return any(s.speaker == "B" for s in self.scenes)
+
+    def speaker_name(self, speaker: str) -> str:
+        i = 1 if speaker == "B" else 0
+        return self.cast[i] if i < len(self.cast) else speaker
+
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> Script:
-        d = dict(d)
-        d["scenes"] = [Scene(**s) for s in d.get("scenes", [])]
+        known = {f.name for f in fields(cls)}
+        scene_keys = {f.name for f in fields(Scene)}
+        d = {k: v for k, v in dict(d).items() if k in known}
+        d["scenes"] = [Scene(**{k: v for k, v in s.items() if k in scene_keys}) for s in d.get("scenes", [])]
         return cls(**d)
 
 
@@ -116,15 +158,38 @@ def pick_style(settings: Settings, source: str) -> str:
         return settings.style
     if source == "trending":
         return "news"
-    if source in ("wikipedia", "reddit"):
+    if source in ("wikipedia", "reddit", "rss"):
         return "story"
     return random.choice(AUTO_STYLES)
 
 
-def build_prompt(subject: str, style: str, settings: Settings, avoid: list[str], context: str = "") -> tuple[str, str]:
+def scene_plan(style: str, target_seconds: int) -> tuple[int, int]:
+    """(words, scenes) for a target length. Chat messages are short, so a chat has more of them."""
+    words = int(target_seconds * WORDS_PER_SECOND)
+    if style == "chat":
+        return words, max(6, min(18, round(target_seconds / 2.8)))
+    if style == "dialogue":
+        return words, max(6, min(14, round(target_seconds / 3.5)))
+    return words, max(4, min(10, round(target_seconds / 5.5)))
+
+
+def _format_rules(style: str) -> str:
+    if style == "dialogue":
+        return ("- Each scene is ONE line spoken by ONE person. Alternate speakers: A, B, A, B...\n"
+                "- cast: two short first names, [name of A, name of B]. Nobody says their own name.\n")
+    if style == "chat":
+        return ("- Each scene is ONE text message (max 18 words) from A or B. Messages may be 1-3 words. "
+                "Consecutive messages from the same person are fine.\n"
+                "- cast: [contact name shown at the top of the chat (e.g. Mom, Unknown Number, Jake), \"Me\"]. "
+                "B is \"Me\", the phone's owner.\n"
+                "- No emojis. The story must be fiction that is clearly plausible, never about real people.\n")
+    return "- speaker is always \"A\" (one narrator). cast: [\"Narrator\"].\n"
+
+
+def build_prompt(subject: str, style: str, settings: Settings, avoid: list[str], context: str = "",
+                 insights: str = "") -> tuple[str, str]:
     lang = LANGUAGES.get(settings.language, settings.language)
-    words = int(settings.target_seconds * WORDS_PER_SECOND)
-    n_scenes = max(4, min(10, round(settings.target_seconds / 5.5)))
+    words, n_scenes = scene_plan(style, settings.target_seconds)
     system = (
         "You are a top YouTube Shorts scriptwriter and editor. You write fast, factual, highly "
         "re-watchable vertical videos. You reply with a single JSON object and nothing else."
@@ -133,18 +198,19 @@ def build_prompt(subject: str, style: str, settings: Settings, avoid: list[str],
     if avoid:
         avoid_block = "Do NOT repeat any of these recent videos:\n" + "\n".join(f"- {a}" for a in avoid[:40]) + "\n\n"
     ctx = f"Background information (use it, don't invent beyond it):\n{context.strip()}\n\n" if context else ""
+    ins = f"{insights.strip()}\n\n" if insights else ""
     user = f"""Write one YouTube Short.
 
 Subject: {subject}
 If the subject is broad, choose ONE specific, surprising, lesser-known topic inside it.
 Format: {STYLES[style]}
 Audience: {settings.audience}
-Language: {lang} for narration, title, hook_text and description. search_query and image_prompt are ALWAYS English.
+Language: {lang} for narration, title, hook_text, cast and description. search_query and image_prompt are ALWAYS English.
 
-{ctx}{avoid_block}Rules:
-- Total narration about {words} words (~{settings.target_seconds} seconds spoken), split into {n_scenes} scenes of 1-2 short sentences.
-- Scene 1 is the hook: a bold claim or question that stops the scroll in under 2 seconds. Never "In this video", never a greeting.
-- Every sentence earns its place: concrete details, numbers, names. Only well-established facts; no made-up statistics.
+{ctx}{ins}{avoid_block}Rules:
+- Total narration about {words} words (~{settings.target_seconds} seconds spoken), split into about {n_scenes} scenes.
+{_format_rules(style)}- Scene 1 is the hook: a bold claim or question that stops the scroll in under 2 seconds. Never "In this video", never a greeting.
+- Every line earns its place: concrete details, numbers, names. Only well-established facts; no made-up statistics.
 - The last scene lands the payoff, then a short call to action (max 8 words), e.g. asking viewers to comment or follow.
 - Narration is spoken by a voice: no emojis, hashtags, labels, brackets or stage directions.
 - search_query: 1-4 English words describing concrete, filmable stock footage for that scene (e.g. "octopus underwater", "old library books"). No abstract words.
@@ -155,7 +221,7 @@ Language: {lang} for narration, title, hook_text and description. search_query a
 - hashtags: 3-5 relevant hashtags. tags: 8-15 search keywords.
 - category: one of {", ".join(CATEGORIES)}.
 
-Return JSON with keys: topic, title, hook_text, scenes (array of {{narration, search_query, image_prompt}}), description, hashtags, tags, category."""
+Return JSON with keys: topic, title, hook_text, cast, scenes (array of {{speaker, narration, search_query, image_prompt}}), description, hashtags, tags, category."""
     return system, user
 
 
@@ -168,7 +234,12 @@ def _clean_hashtag(tag: str) -> str:
     return f"#{t}" if t else ""
 
 
+def _speaker(value) -> str:
+    return "B" if str(value or "A").strip().upper().startswith("B") else "A"
+
+
 def normalize(data: dict, subject: str, style: str, language: str) -> Script:
+    multi = style in MULTI_SPEAKER
     raw_scenes = data.get("scenes") or []
     scenes: list[Scene] = []
     for s in raw_scenes:
@@ -179,11 +250,16 @@ def normalize(data: dict, subject: str, style: str, language: str) -> Script:
             continue
         query = _clean_tag(s.get("search_query") or "") or subject
         scenes.append(Scene(narration=narration, search_query=truncate_words(query, 60),
-                            image_prompt=str(s.get("image_prompt") or query).strip()))
+                            image_prompt=str(s.get("image_prompt") or query).strip(),
+                            speaker=_speaker(s.get("speaker")) if multi else "A"))
     if not scenes:
         raise ValueError("script has no narration")
-    while len(scenes) > 12:  # merge the shortest neighbours to keep cuts watchable
-        i = min(range(len(scenes) - 1), key=lambda k: len(scenes[k].narration) + len(scenes[k + 1].narration))
+    limit = 20 if style == "chat" else 12
+    while len(scenes) > limit:  # merge the shortest same-speaker neighbours to keep cuts watchable
+        pairs = [k for k in range(len(scenes) - 1) if scenes[k].speaker == scenes[k + 1].speaker]
+        if not pairs:
+            break
+        i = min(pairs, key=lambda k: len(scenes[k].narration) + len(scenes[k + 1].narration))
         a, b = scenes[i], scenes.pop(i + 1)
         a.narration = f"{a.narration} {b.narration}"
 
@@ -215,7 +291,16 @@ def normalize(data: dict, subject: str, style: str, language: str) -> Script:
     if category not in CATEGORIES:
         category = "education"
 
+    cast = [truncate_words(re.sub(r"[<>\"{}\[\]]", "", strip_emoji(str(c))).strip(), 24)
+            for c in (data.get("cast") or []) if str(c).strip()]
+    if multi:
+        defaults = DEFAULT_CAST[style]
+        cast = (cast + defaults[len(cast):])[:2] if len(cast) < 2 else cast[:2]
+    else:
+        cast = []
+
     description = re.sub(r"(?<!\w)#\w+", "", strip_emoji(str(data.get("description") or ""))).strip()
+    score = data.get("score")
     return Script(
         topic=str(data.get("topic") or subject).strip(),
         title=title,
@@ -227,20 +312,121 @@ def normalize(data: dict, subject: str, style: str, language: str) -> Script:
         category=category,
         style=style,
         language=language,
+        cast=cast,
+        score=int(score) if isinstance(score, (int, float)) else None,
+        review=[str(x) for x in data.get("review") or []][:8],
     )
 
 
+def word_count(text: str, language: str = "en") -> int:
+    if language.split("-")[0] in ("zh", "ja"):
+        return round(len(re.sub(r"\s", "", text)) / 2.2)  # ~characters per spoken "word" beat
+    return len(text.split())
+
+
 def write_script(llm, subject: str, settings: Settings, *, source: str = "niche",
-                 avoid: list[str] | None = None, context: str = "", style: str | None = None) -> Script:
+                 avoid: list[str] | None = None, context: str = "", style: str | None = None,
+                 insights: str = "") -> Script:
     style = style if style in STYLES else pick_style(settings, source)
     if llm is None:
         return offline_script(subject, settings, style)
-    system, user = build_prompt(subject, style, settings, avoid or [], context)
+    system, user = build_prompt(subject, style, settings, avoid or [], context, insights)
     data = llm.complete_json(system, user, SCRIPT_SCHEMA)
     script = normalize(data, subject, style, settings.language)
-    log.info("Script (%s, %d words, %d scenes): %s", style, len(script.narration.split()),
+    log.info("Script (%s, %d words, %d scenes): %s", style, word_count(script.narration, settings.language),
              len(script.scenes), script.title)
     return script
+
+
+# --------------------------------------------------------------------------------------------------
+# Script Doctor — a second pass that scores the draft for retention and fixes what is weak.
+# --------------------------------------------------------------------------------------------------
+def review_prompt(script: Script, settings: Settings, rewrite: bool) -> tuple[str, str]:
+    words, n_scenes = scene_plan(script.style, settings.target_seconds)
+    lang = LANGUAGES.get(script.language, script.language)
+    draft = {k: v for k, v in script.to_dict().items() if k not in ("style", "language", "score", "review")}
+    system = ("You are a ruthless YouTube Shorts retention editor. You know that viewers decide in 1-2 "
+              "seconds and swipe away at any slow moment. You reply with a single JSON object and nothing else.")
+    task = (f"""Then rewrite it into the strongest version you can. Keep the same subject, format, language ({lang}),
+the same JSON structure and about {words} words in about {n_scenes} scenes. Fix every issue you listed:
+sharpen the hook, cut filler, make vague lines concrete, remove any claim that may not be true, keep the
+payoff for the end, end with a short call to action. Put the rewritten script in "script".""" if rewrite else
+            'Return only "score" and "issues".')
+    user = f"""Review this YouTube Short script ({STYLES[script.style]}).
+
+{json.dumps(draft, ensure_ascii=False, indent=1)}
+
+Score it 0-100 for how well it will hold viewers to the end: hook strength in the first 2 seconds (most
+important), curiosity gaps, pacing, specificity, payoff, and accuracy risk. Be strict: 85+ is rare.
+List the concrete problems in "issues" (max 5, short sentences, most important first).
+{task}"""
+    return system, user
+
+
+def review_script(llm, script: Script, settings: Settings) -> Script:
+    """Score the script and (in rewrite mode) replace it with the improved version. Never fails the video:
+    if the review call or its rewrite is unusable, the original script is kept."""
+    mode = settings.script_review
+    if llm is None or mode == "off":
+        return script
+    rewrite = mode == "rewrite"
+    system, user = review_prompt(script, settings, rewrite)
+    try:
+        data = llm.complete_json(system, user, REVIEW_SCHEMA if rewrite else SCORE_SCHEMA, max_tokens=5000)
+    except Exception as e:
+        log.warning("Script Doctor skipped: %s", e)
+        return script
+    try:
+        score = max(0, min(100, int(data.get("score"))))
+    except (TypeError, ValueError):
+        score = None
+    issues = [str(i).strip() for i in data.get("issues") or [] if str(i).strip()][:5]
+    result = script
+    if rewrite and isinstance(data.get("script"), dict):
+        try:
+            better = normalize(data["script"], script.topic, script.style, script.language)
+            target = scene_plan(script.style, settings.target_seconds)[0]
+            n = word_count(better.narration, script.language)
+            if 0.5 * target <= n <= 1.7 * target:
+                result = better
+            else:
+                log.warning("Script Doctor rewrite ignored: %d words for a %d-word target", n, target)
+        except ValueError as e:
+            log.warning("Script Doctor rewrite ignored: %s", e)
+    result.score, result.review = score, issues
+    changed = "rewritten" if result is not script else "kept"
+    log.info("Script Doctor: %s/100, %s%s", score if score is not None else "?", changed,
+             f" — {issues[0]}" if issues else "")
+    return result
+
+
+# --------------------------------------------------------------------------------------------------
+# Translation — one idea, many languages, same footage.
+# --------------------------------------------------------------------------------------------------
+def translate_script(llm, script: Script, language: str) -> Script:
+    lang = LANGUAGES.get(language, language)
+    src = {k: v for k, v in script.to_dict().items() if k not in ("style", "language", "score", "review")}
+    system = ("You are a native-level translator and YouTube Shorts adapter. You reply with a single JSON "
+              "object and nothing else.")
+    user = f"""Adapt this YouTube Short into {lang}.
+
+{json.dumps(src, ensure_ascii=False, indent=1)}
+
+Rules:
+- Translate title, hook_text, cast, description and every scene's narration into natural spoken {lang},
+  the way a native creator would say it (not word for word). Keep numbers and names accurate.
+- Keep EXACTLY {len(script.scenes)} scenes in the same order, with the same speaker for each.
+- Keep search_query and image_prompt unchanged (English).
+- Hashtags and tags in {lang} where people search in {lang}, otherwise English.
+Return the same JSON structure."""
+    data = llm.complete_json(system, user, SCRIPT_SCHEMA)
+    out = normalize(data, script.topic, script.style, language)
+    if len(out.scenes) != len(script.scenes):
+        raise ValueError(f"translation to {language} has {len(out.scenes)} scenes, expected {len(script.scenes)}")
+    for mine, theirs in zip(out.scenes, script.scenes):
+        mine.search_query, mine.image_prompt, mine.speaker = theirs.search_query, theirs.image_prompt, theirs.speaker
+    out.category = script.category
+    return out
 
 
 def load_script(path: str | Path, settings: Settings) -> Script:
@@ -249,9 +435,17 @@ def load_script(path: str | Path, settings: Settings) -> Script:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError(f"{path}: expected a JSON object with 'title' and 'scenes'")
-    subject = str(data.get("topic") or data.get("title") or Path(path).stem)
+    return script_from_data(data, settings, fallback_subject=Path(path).stem)
+
+
+def script_from_data(data: dict, settings: Settings, fallback_subject: str = "my video") -> Script:
+    subject = str(data.get("topic") or data.get("title") or fallback_subject)
     style = data.get("style") if data.get("style") in STYLES else "facts"
-    return normalize(data, subject, style, settings.language)
+    if style not in MULTI_SPEAKER and any(_speaker(s.get("speaker")) == "B" for s in data.get("scenes") or []
+                                          if isinstance(s, dict)):
+        style = "dialogue"
+    language = str(data.get("language") or settings.language)
+    return normalize(data, subject, style, language)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -275,14 +469,49 @@ _DEMO = {
     "category": "education",
 }
 
+_DEMO_DIALOGUE = [
+    ("A", "Wait, octopuses have three hearts?", "octopus swimming"),
+    ("B", "Three. And one of them stops beating every time it swims.", "octopus underwater"),
+    ("A", "That can't be healthy.", "coral reef"),
+    ("B", "It's why they'd rather crawl. Swimming wears them out.", "octopus crawling"),
+    ("A", "Okay, but why is their blood blue?", "blue ocean water"),
+    ("B", "Copper. Their blood carries oxygen with copper instead of iron.", "deep sea"),
+    ("A", "So they're basically aliens.", "jellyfish glowing"),
+    ("B", "Pretty much. Follow for more ocean weirdness.", "ocean waves"),
+]
+
+_DEMO_CHAT = [
+    ("A", "are you still at the aquarium", "aquarium tunnel"),
+    ("B", "yeah why", "aquarium fish"),
+    ("A", "the octopus tank. look at it", "octopus tank"),
+    ("B", "it's empty??", "empty aquarium"),
+    ("A", "it's not empty. look closer", "coral reef"),
+    ("B", "omg it's on the glass. it was the same color as the rock", "octopus camouflage"),
+    ("A", "they can change color in under a second", "octopus color"),
+    ("B", "that's actually terrifying", "dark ocean"),
+    ("A", "wait till you hear it has three hearts", "octopus swimming"),
+    ("B", "ok follow for part 2", "ocean waves"),
+]
+
 
 def offline_script(subject: str, settings: Settings, style: str = "facts") -> Script:
-    if not subject or "octopus" in subject.lower() or subject.lower() in {"demo", "random"}:
+    s = (subject or "").strip()
+    if style in MULTI_SPEAKER:
+        lines = _DEMO_DIALOGUE if style == "dialogue" else _DEMO_CHAT
+        data = dict(_DEMO, topic="octopus superpowers", cast=DEFAULT_CAST[style] if style == "dialogue"
+                    else ["Maya", "Me"],
+                    scenes=[{"speaker": sp, "narration": n, "search_query": q, "image_prompt": q}
+                            for sp, n, q in lines])
+        if style == "chat":
+            data.update(title="She Was Staring At An Empty Tank", hook_text="IT WAS NEVER EMPTY")
+        else:
+            data.update(title="Wait, Octopuses Have Three Hearts?", hook_text="3 HEARTS?!")
+        return normalize(data, "octopus superpowers", style, "en")
+    if not s or "octopus" in s.lower() or s.lower() in {"demo", "random"}:
         d = _DEMO
         data = dict(d, topic="octopus superpowers",
                     scenes=[{"narration": n, "search_query": q, "image_prompt": q} for n, q in d["scenes"]])
         return normalize(data, "octopus superpowers", "facts", "en")
-    s = subject.strip()
     lines = [
         f"Most people think they know {s}. They don't.",
         f"The story of {s} is stranger than it looks.",
@@ -296,4 +525,4 @@ def offline_script(subject: str, settings: Settings, style: str = "facts") -> Sc
         "description": f"A quick look at {s}. What would you add?",
         "hashtags": ["#facts"], "tags": [s, "facts"], "category": "education",
     }
-    return normalize(data, s, style, settings.language)
+    return normalize(data, s, style if style not in MULTI_SPEAKER else "facts", settings.language)

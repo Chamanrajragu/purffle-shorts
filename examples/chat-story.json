@@ -1,0 +1,90 @@
+{
+  "topic": "octopus superpowers",
+  "title": "She Was Staring At An Empty Tank",
+  "hook_text": "IT WAS NEVER EMPTY",
+  "scenes": [
+    {
+      "narration": "are you still at the aquarium",
+      "search_query": "aquarium tunnel",
+      "image_prompt": "a dim public aquarium tunnel glowing blue, people silhouettes",
+      "speaker": "A"
+    },
+    {
+      "narration": "yeah why",
+      "search_query": "aquarium fish",
+      "image_prompt": "colorful tropical fish in an aquarium tank",
+      "speaker": "B"
+    },
+    {
+      "narration": "the octopus tank. look at it",
+      "search_query": "octopus tank",
+      "image_prompt": "an octopus tank in an aquarium at night",
+      "speaker": "A"
+    },
+    {
+      "narration": "it's empty??",
+      "search_query": "empty aquarium",
+      "image_prompt": "an empty looking aquarium tank with rocks and sand",
+      "speaker": "B"
+    },
+    {
+      "narration": "it's not empty. look closer",
+      "search_query": "coral reef",
+      "image_prompt": "a coral reef rock inside an aquarium",
+      "speaker": "A"
+    },
+    {
+      "narration": "omg it's on the glass. it was the same color as the rock",
+      "search_query": "octopus camouflage",
+      "image_prompt": "an octopus camouflaged on a rock, same color as the rock",
+      "speaker": "B"
+    },
+    {
+      "narration": "they can change color in under a second",
+      "search_query": "octopus color",
+      "image_prompt": "an octopus changing color from brown to red",
+      "speaker": "A"
+    },
+    {
+      "narration": "that's actually terrifying",
+      "search_query": "dark ocean",
+      "image_prompt": "dark deep ocean water with faint light rays",
+      "speaker": "B"
+    },
+    {
+      "narration": "wait till you hear it has three hearts",
+      "search_query": "octopus swimming",
+      "image_prompt": "an octopus swimming in open blue water",
+      "speaker": "A"
+    },
+    {
+      "narration": "ok follow for part 2",
+      "search_query": "ocean waves",
+      "image_prompt": "ocean waves at sunset",
+      "speaker": "B"
+    }
+  ],
+  "description": "Three hearts, blue blood and arms that can taste. The octopus might be the strangest animal on Earth. Which fact surprised you most?",
+  "hashtags": [
+    "#shorts",
+    "#octopus",
+    "#ocean",
+    "#animals",
+    "#facts"
+  ],
+  "tags": [
+    "octopus facts",
+    "ocean animals",
+    "marine biology",
+    "weird animals",
+    "animal facts",
+    "octopus superpowers",
+    "shorts"
+  ],
+  "category": "education",
+  "style": "chat",
+  "cast": [
+    "Maya",
+    "Me"
+  ]
+}

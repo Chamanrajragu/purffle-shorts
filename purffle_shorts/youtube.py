@@ -19,6 +19,7 @@ log = logging.getLogger("purffle")
 
 SCOPE_UPLOAD = "https://www.googleapis.com/auth/youtube.upload"
 SCOPE_MANAGE = "https://www.googleapis.com/auth/youtube"
+SCOPE_READONLY = "https://www.googleapis.com/auth/youtube.readonly"
 RETRY_STATUS = {500, 502, 503, 504}
 
 _lock = threading.Lock()
@@ -36,6 +37,12 @@ def scopes_for(settings: Settings) -> list[str]:
     return [SCOPE_UPLOAD] + ([SCOPE_MANAGE] if settings.playlist_id else [])
 
 
+def auth_scopes(settings: Settings) -> list[str]:
+    """Everything the current settings will need; asked for once by the `auth` command."""
+    extra = [SCOPE_READONLY] if settings.learn_from_stats and not settings.youtube_api_key else []
+    return scopes_for(settings) + extra
+
+
 def _load_legacy_pickle():
     """PurffleShorts 1.x stored credentials in token.pickle; migrate them once to token.json."""
     p = Path("token.pickle")
@@ -49,12 +56,12 @@ def _load_legacy_pickle():
         return None
 
 
-def get_credentials(settings: Settings, interactive: bool = True):
+def get_credentials(settings: Settings, interactive: bool = True, extra_scopes: list[str] | None = None):
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
 
-    scopes = scopes_for(settings)
+    scopes = list(dict.fromkeys(scopes_for(settings) + list(extra_scopes or [])))
     token = Path(settings.token_file)
     creds = None
     if token.exists():
@@ -72,7 +79,7 @@ def get_credentials(settings: Settings, interactive: bool = True):
             creds = None
     if creds is None or not creds.valid:
         if not interactive:
-            raise NotAuthorized("YouTube is not authorized. Run:  python -m purffle_shorts auth")
+            raise NotAuthorized("YouTube is not authorized (or needs a new permission). Run:  purffle-shorts auth")
         secrets = Path(settings.client_secrets)
         if not secrets.exists():
             raise NotAuthorized(
@@ -88,9 +95,10 @@ def get_credentials(settings: Settings, interactive: bool = True):
     return creds
 
 
-def service(settings: Settings, interactive: bool = True):
+def service(settings: Settings, interactive: bool = True, extra_scopes: list[str] | None = None):
     from googleapiclient.discovery import build
-    return build("youtube", "v3", credentials=get_credentials(settings, interactive), cache_discovery=False)
+    creds = get_credentials(settings, interactive, extra_scopes)
+    return build("youtube", "v3", credentials=creds, cache_discovery=False)
 
 
 def _tz(settings: Settings):
