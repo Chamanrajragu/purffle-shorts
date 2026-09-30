@@ -51,3 +51,27 @@ def test_redact_hides_ip_addresses_but_not_times_or_versions():
     out = redact(msg)
     assert "2409:4091" not in out and "203.0.113.7" not in out and out.count("<ip>") == 2
     assert "17:49:06" in out and "9.0.2" in out
+
+
+def test_env_file_is_read_from_the_working_folder(tmp_path, monkeypatch):
+    # Installed with pip or uvx, the package lives far from your folder; the .env next to you must still load.
+    import os
+
+    from purffle_shorts.config import load_env
+    (tmp_path / ".env").write_text("PURFFLE_TEST_FROM_CWD=yes\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PURFFLE_TEST_FROM_CWD", raising=False)
+    load_env()
+    assert os.environ["PURFFLE_TEST_FROM_CWD"] == "yes"
+
+
+def test_env_example_works_as_a_docker_env_file(monkeypatch):
+    # docker run --env-file passes everything after "=" verbatim, comments included.
+    from pathlib import Path
+    for line in (Path(__file__).parent.parent / ".env.example").read_text().splitlines():
+        if line.strip() and not line.startswith("#"):
+            key, _, value = line.partition("=")
+            assert "#" not in value, line
+            monkeypatch.setenv(key, value)
+    s = Settings.from_env()
+    assert s.resolution == (1080, 1920) and s.synthetic_media and s.daily_upload_limit == 6

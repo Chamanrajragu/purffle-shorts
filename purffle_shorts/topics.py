@@ -218,10 +218,39 @@ def extract_article(page: str) -> tuple[str, str]:
     return title, "\n".join(dict.fromkeys(t for t in p.parts if t))
 
 
+_REDDIT_POST = re.compile(r"^https?://(?:www\.|old\.|new\.)?reddit\.com/r/\w+/comments/\w+", re.I)
+
+
+def from_reddit_post(url: str) -> Topic:
+    """A Reddit post as the source. Reddit refuses anonymous JSON and renders pages with JavaScript, but every
+    post has an Atom feed whose first entry is the post itself. The topic asks for the Reddit story format."""
+    m = _REDDIT_POST.match(url)
+    if not m:
+        raise ValueError(f"not a Reddit post link: {url}")
+    r = http().get(m.group(0) + "/.rss", timeout=30)
+    if r.status_code == 429:
+        raise RuntimeError("Reddit is rate-limiting anonymous requests right now. Try again in a few minutes, "
+                           "or save the post's text to a file and use --from-file.")
+    raise_for_status(r, "fetch the Reddit post")
+    ns = {"a": "http://www.w3.org/2005/Atom"}
+    entry = ET.fromstring(r.content).find("a:entry", ns)
+    if entry is None:
+        raise ValueError(f"{url}: Reddit returned no post")
+    title = _strip_html(entry.findtext("a:title", default="", namespaces=ns))
+    body = _strip_html(entry.findtext("a:content", default="", namespaces=ns))
+    body = re.sub(r"\s*submitted by\s+/u/\S+.*$", "", body, flags=re.I | re.S).strip()
+    if not title:
+        raise ValueError(f"{url}: couldn't read that Reddit post")
+    return Topic(title, "url", key=f"url:{m.group(0)}", context=f"{title}\n\n{body}"[:6000], style="reddit")
+
+
 def from_url(url: str) -> Topic:
-    """Turn a web page (article, blog post, docs page, Wikipedia) into a topic with the page as context."""
+    """Turn a web page (article, blog post, docs page, Wikipedia, a Reddit post) into a topic with the page
+    as context."""
     if not re.match(r"^https?://", url):
         raise ValueError(f"not a web address: {url}")
+    if _REDDIT_POST.match(url):
+        return from_reddit_post(url)
     r = http().get(url, timeout=30, headers={"Accept": "text/html,application/xhtml+xml"})
     raise_for_status(r, f"fetch {url[:60]}")
     title, text = extract_article(r.text)

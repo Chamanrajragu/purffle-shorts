@@ -168,3 +168,30 @@ def test_mcp_stdio_loop(settings):
     lines = [json.loads(x) for x in out.getvalue().splitlines()]
     assert lines[0] == {"jsonrpc": "2.0", "id": 7, "result": {}}
     assert lines[1]["error"]["code"] == -32700 and len(lines) == 2
+
+
+def test_upload_limit_refusal_is_queued_not_failed(settings, tmp_path, monkeypatch):
+    # YouTube answers videos.insert with 400 uploadLimitExceeded when a channel hits its own upload cap.
+    import httplib2
+    from googleapiclient.errors import HttpError
+
+    from purffle_shorts import youtube
+    content = b'{"error": {"code": 400, "message": "The user has exceeded the number of videos they may upload.", '\
+              b'"errors": [{"reason": "uploadLimitExceeded", "domain": "youtube.video"}]}}'
+
+    class Request:
+        def next_chunk(self):
+            raise HttpError(httplib2.Response({"status": 400}), content)
+
+    class Videos:
+        def insert(self, **kw):
+            return Request()
+
+    class Service:
+        def videos(self):
+            return Videos()
+    monkeypatch.setattr(youtube, "service", lambda *a, **k: Service())
+    video = tmp_path / "short.mp4"
+    video.write_bytes(b"\0" * 1024)
+    with pytest.raises(youtube.QuotaExceeded):
+        youtube.upload(settings, video, {})

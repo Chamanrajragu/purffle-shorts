@@ -140,3 +140,25 @@ def test_translation_with_wrong_scene_count_is_rejected():
 def test_offline_conversations_are_complete(style):
     s = offline_script("", Settings(), style)
     assert s.style == style and s.multi_speaker and len(s.cast) == 2 and len(s.scenes) >= 8
+
+
+def test_reddit_story_is_one_narrator_with_handles():
+    data = {"title": "t", "cast": ["pettyrevenge", "quiet otter"], "scenes": _scenes(6, speakers="AB")}
+    s = normalize(data, "x", "reddit", "en")
+    assert s.cast == ["r/pettyrevenge", "u/quiet_otter"]
+    assert {sc.speaker for sc in s.scenes} == {"A"} and not s.multi_speaker
+    assert normalize({"title": "t", "scenes": _scenes(5)}, "x", "reddit", "en").cast == ["r/stories", "u/throwaway"]
+    system, user = build_prompt("a lost dog", "reddit", Settings(), [])
+    assert "post title" in user and "u/" in user
+
+
+def test_reddit_translation_keeps_the_handles():
+    src = normalize({"title": "t", "cast": ["r/confessions", "u/otter"], "scenes": _scenes(4)}, "x", "reddit", "en")
+    reply = {"title": "Hola", "cast": ["r/confesiones", "u/nutria"], "scenes": _scenes(4)}
+    assert translate_script(FakeLLM(reply), src, "es").cast == ["r/confessions", "u/otter"]
+
+
+def test_offline_reddit_story():
+    s = offline_script("", Settings(), "reddit")
+    assert s.style == "reddit" and s.cast == ["r/confessions", "u/quiet_otter22"]
+    assert s.scenes[0].narration.startswith("Am I wrong") and len(s.scenes) == 8

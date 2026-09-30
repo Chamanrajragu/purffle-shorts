@@ -16,6 +16,8 @@ myenv/
 venv/
 .venv/
 *.egg-info/
+build/
+dist/
 
 # IDE
 .vs/

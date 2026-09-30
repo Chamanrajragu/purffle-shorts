@@ -28,8 +28,9 @@ log = logging.getLogger("purffle")
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
 _STYLE = {"type": "string", "enum": ["auto", "facts", "story", "listicle", "myth", "quiz", "motivational", "news",
-                                     "explainer", "dialogue", "chat"],
-          "description": "Video format. dialogue = two voices talking; chat = animated text-message story."}
+                                     "explainer", "dialogue", "chat", "reddit"],
+          "description": "Video format. dialogue = two voices talking; chat = animated text-message story; "
+                         "reddit = first-person story that opens on a post card."}
 TOOLS: list[dict] = [
     {"name": "make_short",
      "description": "Write, voice and render a complete short video (script, voice, footage, captions, music) and "

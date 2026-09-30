@@ -197,16 +197,24 @@ def _snap(sents: list[Sentence], start: float, end: float, min_s: float, max_s: 
 
 def pick_clips(llm, sents: list[Sentence], settings: Settings, count: int, min_s: int = 20,
                max_s: int = 58) -> list[ClipPlan]:
-    if llm is None:  # offline: evenly spread windows
-        plans, i = [], 0
-        while i < len(sents) and len(plans) < count:
+    if llm is None:  # offline: windows spread evenly over the whole video, each starting on a sentence
+        plans, nxt = [], 0
+        if not sents:
+            return plans
+        t0, step = sents[0].start, (sents[-1].end - sents[0].start) / max(count, 1)
+        for k in range(count):
+            i = next((n for n in range(nxt, len(sents)) if sents[n].start >= t0 + k * step), None)
+            if i is None:
+                break
             j = i
             while j + 1 < len(sents) and sents[j].end - sents[i].start < min_s:
                 j += 1
-            text = sents[i].text
-            plans.append(ClipPlan(sents[i].start, min(sents[j].end, sents[i].start + max_s),
-                                  title=text[:60].rstrip(" ,.") or f"Clip {len(plans) + 1}", hook_text=""))
-            i = j + 1
+            end = min(sents[j].end, sents[i].start + max_s)
+            if end - sents[i].start < min(min_s, 5.0):
+                continue
+            plans.append(ClipPlan(sents[i].start, end, title=sents[i].text[:60].rstrip(" ,.") or f"Clip {k + 1}",
+                                  hook_text=""))
+            nxt = j + 1
         return plans
     system, user = clip_prompt(sents, count, min_s, max_s, settings)
     data = llm.complete_json(system, user, CLIP_SCHEMA, max_tokens=6000)

@@ -1,20 +1,22 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "purffle-shorts"
 version = "3.0.0"
-description = "Free, open-source AI YouTube Shorts studio and upload autopilot: any LLM writes and self-reviews the script, free neural voices, dialogue and text-message story formats, long-video clipping, word-synced captions, ffmpeg render, auto-upload and scheduling, web app and MCP server."
+description = "Free, open-source AI YouTube Shorts generator and upload autopilot: any LLM writes and self-reviews the script, free neural voices, dialogue, text-message and Reddit-style story formats, podcast-to-Shorts clipping, word-synced captions, ffmpeg render, auto-upload and scheduling, web studio and MCP server."
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Chaman Raj" }]
 requires-python = ">=3.10"
 keywords = [
     "youtube shorts", "youtube shorts generator", "youtube automation", "ai video generator", "text to video",
     "faceless youtube", "shorts maker", "tiktok", "instagram reels", "llm", "openai", "claude", "gemini", "ollama",
     "text to speech", "edge-tts", "captions", "ffmpeg", "automation", "mcp", "podcast clips", "chat story",
-    "text message story", "video clipper",
+    "text message story", "video clipper", "ai shorts generator", "reddit story video", "podcast to shorts",
+    "opus clip alternative", "reels maker", "faceless video generator", "mcp server",
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -27,7 +29,6 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Multimedia :: Video",
     "Topic :: Multimedia :: Video :: Conversion",
@@ -45,6 +46,8 @@ dependencies = [
     "google-auth>=2.23",
     "google-auth-oauthlib>=1.1",
     "anthropic>=1.0",
+    # cryptography 49+ ships no Intel-Mac wheels, so pip would try to compile it with Rust.
+    "cryptography<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
 
 [project.optional-dependencies]
@@ -59,15 +62,16 @@ purffle-shorts = "purffle_shorts.cli:main"
 
 [project.urls]
 Homepage = "https://purffle.com/purffle-shorts/"
+Documentation = "https://github.com/Chamanrajragu/purffle-shorts#readme"
 Source = "https://github.com/Chamanrajragu/purffle-shorts"
 Issues = "https://github.com/Chamanrajragu/purffle-shorts/issues"
 Changelog = "https://github.com/Chamanrajragu/purffle-shorts/blob/main/CHANGELOG.md"
 
-[tool.setuptools]
-packages = ["purffle_shorts"]
+[tool.setuptools.packages.find]
+include = ["purffle_shorts", "purffle_shorts.*"]
 
 [tool.setuptools.package-data]
-purffle_shorts = ["web/*"]
+"purffle_shorts.web" = ["*.html", "*.css", "*.js", "*.svg"]
 
 [tool.ruff]
 line-length = 120

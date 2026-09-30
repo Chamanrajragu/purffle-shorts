@@ -176,6 +176,14 @@ def compose(settings: Settings, segments: list[Path], lengths: list[float], voic
         f.append(f"[{idx}:v]format=rgba[chat]")
         overlay("chat", f"x={cx}:y={cy}:format=auto", "vchat")
         idx += 1
+    if plan.card:
+        png, cx, cy = plan.card
+        u = plan.card_until
+        inputs += ["-framerate", str(F), "-loop", "1", "-t", f"{u:.3f}", "-i", str(png.resolve())]
+        f.append(f"[{idx}:v]format=rgba,fade=t=in:st=0:d=0.12:alpha=1,"
+                 f"fade=t=out:st={max(0.0, u - 0.25):.3f}:d=0.25:alpha=1[card]")
+        overlay("card", f"x={cx}:y={cy}:eof_action=pass:format=auto", "vcard")
+        idx += 1
     if plan.mode == "pillow":
         if plan.captions:
             inputs += ["-f", "concat", "-safe", "0", "-i", str(plan.captions.resolve())]

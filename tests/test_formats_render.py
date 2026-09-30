@@ -24,7 +24,7 @@ def spy_overlays(monkeypatch):
     real = P.build_overlays
 
     def spy(*a, **kw):
-        calls.append(kw)
+        calls.append(dict(kw, _chunks=a[1]))
         return real(*a, **kw)
     monkeypatch.setattr(P, "build_overlays", spy)
     return calls
@@ -49,6 +49,32 @@ def test_dialogue_gets_speaker_tags(fast, spy_overlays):
     r = P.Studio(fast).make(style="dialogue")
     assert r.ok, r.error
     assert spy_overlays[0]["labels"] == {"A": "Alex", "B": "Sam"} and spy_overlays[0]["chat"] is None
+
+
+@needs_ffmpeg
+def test_reddit_story_opens_on_a_post_card(fast, spy_overlays):
+    r = P.Studio(fast).make(style="reddit")
+    assert r.ok, r.error
+    kw = spy_overlays[0]
+    community, user, title = kw["card"]
+    assert (community, user) == ("r/confessions", "u/quiet_otter22") and title.startswith("Am I wrong")
+    until = kw["card_until"]
+    assert 1.0 < until < ffmpeg.probe(r.video)["duration"] * 0.6
+    first = kw["_chunks"][0]
+    assert first.start >= until - 0.4 and not first.text.startswith("Am")  # captions begin with the story
+    assert "Am I wrong" in (r.folder / "captions.srt").read_text()   # the SRT still has the whole narration
+
+
+def test_post_card_fits_every_shape(settings, tmp_path):
+    from PIL import Image
+
+    from purffle_shorts.overlays import post_card_png
+    long_title = "Am I wrong for " + "telling my whole family about the thing that happened at the wedding " * 3
+    for size in [(1080, 1920), (1920, 1080), (1080, 1080)]:
+        s = settings.with_overrides(resolution=size)
+        png, x, y = post_card_png(s, None, "r/confessions", "u/otter", long_title, tmp_path / "card.png")
+        w, h = Image.open(png).size
+        assert 0 <= x and x + w <= size[0] and 0 <= y and y + h <= size[1], (size, x, y, w, h)
 
 
 @needs_ffmpeg
@@ -175,6 +201,15 @@ def test_clip_moments_snap_to_sentences_and_never_overlap():
     starts = {s.start for s in sents}
     assert all(p.start in starts and 8 <= p.duration <= 14 for p in plans)
 
+
+
+def test_clips_without_an_llm_are_spread_over_the_whole_video():
+    sents = clipper.sentences(_fake_transcript(total=120.0))
+    plans = clipper.pick_clips(None, sents, P.Settings(), count=3, min_s=8, max_s=14)
+    assert len(plans) == 3
+    span = sents[-1].end - sents[0].start
+    assert [round(p.start / span, 1) for p in plans] == [0.0, 0.3, 0.7]
+    assert all(a.end <= b.start for a, b in zip(plans, plans[1:]))
 
 # ------------------------------------------------------------------ timing with two speakers
 def test_caption_chunks_never_mix_speakers():

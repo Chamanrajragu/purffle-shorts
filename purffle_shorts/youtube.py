@@ -182,7 +182,8 @@ def upload(settings: Settings, video: Path, body: dict) -> dict:
                         last_pct = pct
             except HttpError as e:
                 text = str(e)
-                if e.resp.status == 403 and ("quotaExceeded" in text or "uploadLimitExceeded" in text):
+                # quotaExceeded comes as a 403 and uploadLimitExceeded as a 400; both clear at midnight Pacific
+                if "quotaExceeded" in text or "uploadLimitExceeded" in text:
                     raise QuotaExceeded(text) from e
                 if e.resp.status not in RETRY_STATUS:
                     raise

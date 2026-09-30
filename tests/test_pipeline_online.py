@@ -115,3 +115,19 @@ def test_schedule_and_quota_queue(online, monkeypatch):
     second = studio.make()
     assert second.status == "queued" and second.video.exists()
     assert [row["id"] for row in studio.history.pending_uploads()] == [second.record_id]
+
+
+@needs_ffmpeg
+def test_youtube_refusal_pauses_uploads_until_the_reset(online, monkeypatch):
+    s, _ = online
+    calls = []
+
+    def refuse(settings, video, body):
+        calls.append(video)
+        raise P.youtube.QuotaExceeded("uploadLimitExceeded")
+    monkeypatch.setattr(P.youtube, "upload", refuse)
+    studio = P.Studio(s.with_overrides(keep_videos=True))
+    first, second = studio.make(), studio.make()
+    assert first.status == second.status == "queued" and len(calls) == 1  # the second one was not even tried
+    assert studio.quota_left() == 0                                     # so autopilot sleeps instead of piling up
+    assert len(studio.history.pending_uploads()) == 2

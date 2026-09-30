@@ -10,6 +10,7 @@ tzdata; sys_platform == "win32"
 google-api-python-client>=2.100
 google-auth>=2.23
 google-auth-oauthlib>=1.1
+cryptography<49; sys_platform == "darwin" and platform_machine == "x86_64"   # newer ones have no Intel-Mac wheels
 
 # Claude (Anthropic) provider — other LLMs need no extra package
 anthropic>=1.0

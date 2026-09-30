@@ -163,7 +163,7 @@ class Settings:
     privacy: str = "public"           # public|unlisted|private
     publish_times: list[str] = field(default_factory=list)  # e.g. 09:00,14:00,19:00 -> scheduled
     timezone: str = ""
-    daily_upload_limit: int = 6       # 10,000 quota units / 1,600 per upload
+    daily_upload_limit: int = 6       # a pace; the API gives uploads their own bucket of 100 a day
     made_for_kids: bool = False
     synthetic_media: bool = True      # YouTube "altered or synthetic content" disclosure
     playlist_id: str = ""
@@ -337,10 +337,14 @@ class Settings:
 def load_env(env_file: str | None = None) -> None:
     """Load .env (or a named profile file) without overriding variables already set in the shell."""
     try:
-        from dotenv import load_dotenv
+        from dotenv import find_dotenv, load_dotenv
     except ImportError:  # pragma: no cover - python-dotenv is a hard dependency
         return
     if env_file:
         load_dotenv(env_file, override=True)
-    else:
-        load_dotenv()
+        return
+    # The .env in the folder you run from (or PURFFLE_HOME). Plain load_dotenv() searches upwards from the
+    # package's own folder, which never reaches your folder once the package is installed with pip or uvx.
+    path = find_dotenv(usecwd=True) or find_dotenv()
+    if path:
+        load_dotenv(path)

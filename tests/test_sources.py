@@ -113,3 +113,20 @@ def test_planner_saves_unique_ideas(tmp_path):
     ideas = plan_ideas(LLM(), Settings(), h, count=3, niches=["animals"])
     assert [i["subject"] for i in ideas] == ["The emu war of 1932", "Mantis shrimp punches"]
     assert ideas[1]["style"] == "" and len(h.ideas("pending")) == 2
+
+
+REDDIT_FEED = """<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom">
+<entry><title>TIFU by tipping my pizza driver $100</title>
+<content type="html">&lt;!-- SC_OFF --&gt;&lt;div class="md"&gt;&lt;p&gt;I meant to tip ten dollars. I&amp;#39;m still
+thinking about it.&lt;/p&gt;&lt;/div&gt;&lt;!-- SC_ON --&gt; &amp;#32; submitted by &amp;#32; &lt;a href="x"&gt;
+/u/someone &lt;/a&gt; &lt;br/&gt; &lt;span&gt;&lt;a href="y"&gt;[link]&lt;/a&gt;&lt;/span&gt;</content></entry>
+<entry><title>a comment</title><content type="html">not the post</content></entry></feed>"""
+
+
+def test_reddit_post_link_is_read_from_its_feed(monkeypatch):
+    feed = "https://www.reddit.com/r/tifu/comments/abc123/.rss"
+    monkeypatch.setattr(T, "http", lambda: Session({feed: REDDIT_FEED}))
+    t = T.from_url("https://www.reddit.com/r/tifu/comments/abc123/tifu_by_tipping/?utm_source=share")
+    assert t.subject == "TIFU by tipping my pizza driver $100" and t.style == "reddit"
+    assert "I'm still thinking about it." in t.context
+    assert "submitted by" not in t.context and "not the post" not in t.context

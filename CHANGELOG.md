@@ -13,7 +13,12 @@
 - **Learn from your channel** (opt-in `LEARN_FROM_STATS`): `stats` reads view, like and comment counts (with `YOUTUBE_API_KEY`, or OAuth read access), and the best and worst performers go into the writing and planning prompts.
 - **MCP server** (`purffle-shorts mcp`, standard library only): `make_short`, `draft_script`, `clip_video`, `plan_ideas`, `list_videos`, `upload_video` for Claude Desktop, Claude Code, Cursor and other MCP clients. Uploads only when asked; `demo: true` needs no keys. `PURFFLE_HOME` sets its working folder.
 - **Notifications**: `NOTIFY_WEBHOOK` posts to Discord, Slack or any URL when a video is rendered, uploaded, scheduled, queued or fails. Webhook tokens are redacted from logs.
+- **Reddit-style story format** (`reddit`): a first-person story that opens on a post card (community, poster, title, vote and comment counts) while the title is read, then continues with word captions. The card replaces the hook title, works in every aspect ratio and in libass mode, and the SRT keeps the whole narration. Example in `examples/reddit-story.json`; `demo --style reddit` works with no keys.
+- `make --url` accepts Reddit post links. Reddit refuses anonymous JSON requests, so the post is read from its public Atom feed, and the Reddit story format is picked automatically. A rate-limited request (HTTP 429) gets a clear message.
 - `POLLINATIONS_API_KEY`, sent as a Bearer token (untested: no key was available while building this).
+- Release automation (`.github/workflows/release.yml`): publishing a GitHub release builds the package, publishes it to PyPI with Trusted Publishing, lists the MCP server in the official MCP Registry (`server.json`) and pushes a Docker image to GHCR. `glama.json` for the Glama MCP directory.
+- CI also builds the Docker image and checks the PyPI package (`twine check --strict`).
+- `CODE_OF_CONDUCT.md`, `CITATION.cff` and a pull request template.
 
 ### Changed
 - **New Studio web app**, rewritten from scratch: Create (sources, format cards, shape, voices, caption-style preview, AI settings), draft-then-edit script editor with the retention score, live stage progress, a Library with player, downloads and edit/re-render/upload/delete, Queue, Ideas, Clip, Channel stats and System checks. Served from `purffle_shorts/web/` with no build step or CDN, a strict Content-Security-Policy, a Host-header check against DNS rebinding and the per-session token. Works on phones.
@@ -22,7 +27,17 @@
 - A hardware encoder (`h264_videotoolbox`, `h264_nvenc`) that fails is retried once with libx264.
 - The history database gains an idea queue, scores, stats and translation links, and older databases are migrated on open.
 - `doctor` checks are shared with the Studio and cover the new features.
+- Installing on an Intel Mac no longer tries to compile `cryptography` (its newest releases ship no Intel-Mac wheels): it is capped below 49 there.
+- Packaging: SPDX license metadata (`license = "MIT"`), the Studio's web files are declared as package data, and the build has no warnings.
+- The YouTube upload limit is explained correctly: uploads now have their own API bucket of 100 a day, so `YT_DAILY_LIMIT=6` is a pace, not a quota ceiling.
+- The Studio labels Pollinations as needing a key, and the Dockerfile has OCI labels and its Studio example publishes the port on localhost only.
 - Pollinations: after an HTTP 402 ("payment required", which keyless requests now get after about one image) or another refusal, it is skipped for the rest of the video with one clear message. The README no longer calls it free and keyless.
+
+### Fixed
+- `.env` is now read from the folder you run PurffleShorts in (or `PURFFLE_HOME`). Before, it was searched for next to the installed package, so installs with pip, pipx or uvx, and MCP clients, started without your keys.
+- YouTube's `uploadLimitExceeded` refusal (an HTTP 400) now queues the video like `quotaExceeded` instead of marking it failed, and after any such refusal nothing else is tried until the reset, so autopilot waits instead of making videos that cannot go up.
+- Without an LLM, `clip` spreads its moments over the whole video instead of taking the first minutes back to back.
+- `.env.example` keeps every comment on its own line, so it also works with `docker run --env-file` (which reads a comment after a value as part of the value). It lists `reddit` and `YT_TOKEN_FILE`, and says that `PURFFLE_HOME` belongs in the MCP client's settings.
 
 ## 2.0.0 — 2026-09-22
 

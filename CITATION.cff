@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use PurffleShorts in your work, please cite it like this."
+title: "PurffleShorts: open-source AI YouTube Shorts generator and upload autopilot"
+type: software
+authors:
+  - given-names: Chaman Raj
+repository-code: "https://github.com/Chamanrajragu/purffle-shorts"
+url: "https://purffle.com/purffle-shorts/"
+license: MIT
+version: 3.0.0
+date-released: "2026-09-29"
+keywords:
+  - youtube shorts generator
+  - ai video generator
+  - text to video
+  - faceless video
+  - llm
+  - text to speech
+  - ffmpeg
+  - model context protocol
+abstract: >-
+  PurffleShorts turns a topic, web page, document or long video into finished vertical Shorts:
+  an LLM of your choice writes and self-reviews the script, free neural voices narrate it,
+  stock footage or AI images illustrate each sentence, word-synced captions are burned in with
+  ffmpeg, and the result is uploaded or scheduled on YouTube.

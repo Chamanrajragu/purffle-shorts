@@ -23,8 +23,17 @@ from .llm import LLM, LLMConfigError
 from .media import MediaItem, Visuals
 from .overlays import ChatMessage, build_overlays
 from .render import extract_frame, render_video
-from .script import MULTI_SPEAKER, Script, load_script, review_script, translate_script, write_script
-from .timing import caption_chunks, scene_timeline, srt
+from .script import (
+    CARD_STYLES,
+    DEFAULT_CAST,
+    MULTI_SPEAKER,
+    Script,
+    load_script,
+    review_script,
+    translate_script,
+    write_script,
+)
+from .timing import caption_chunks, scene_timeline, srt, tokenize
 from .topics import Topic, pick_topic
 from .utils import redact, slugify, truncate_words
 
@@ -114,6 +123,7 @@ class Studio:
         self._llm: LLM | None = None
         self.progress = progress
         self._stats_synced = 0.0
+        self._refused_on = ""  # the quota day on which YouTube itself refused an upload
 
     def _step(self, stage: str, message: str = "") -> None:
         if self.progress:
@@ -258,8 +268,17 @@ class Studio:
                       if script.style == "dialogue" and script.multi_speaker else None)
             messages = ([ChatMessage(sc.speaker, sc.narration, st) for sc, st in zip(script.scenes, speech.line_starts)]
                         if chat and speech.line_starts else None)
-            plan = build_overlays(s, chunks, total, script.hook_text, work, labels=labels, chat=messages,
-                                  contact=script.speaker_name("A"))
+            card, card_until, on_screen = None, 0.0, chunks
+            if script.style in CARD_STYLES:
+                # The post card shows the title while it is read; captions start with the story.
+                n0 = len(tokenize(script.scenes[0].narration, s.language))
+                if 0 < n0 < len(speech.words):
+                    card_until = min(speech.words[n0 - 1].end + 0.35, total * 0.6)
+                    community, user = (script.cast + DEFAULT_CAST["reddit"][len(script.cast):])[:2]
+                    card = (community, user, script.scenes[0].narration)
+                    on_screen = caption_chunks(speech.words[n0:], s.caption_max_words, total=total)
+            plan = build_overlays(s, on_screen, total, script.hook_text, work, labels=labels, chat=messages,
+                                  contact=script.speaker_name("A"), card=card, card_until=card_until)
 
             self._step("render", f"{s.width}x{s.height}")
             video = folder / ("short.mp4" if s.vertical else "video.mp4")
@@ -339,7 +358,10 @@ class Studio:
 
     # ------------------------------------------------------------------ uploading
     def quota_left(self) -> int:
-        return self.s.daily_upload_limit - self.history.uploads_since(quota_day_start())
+        day = quota_day_start()
+        if self._refused_on == day:  # YouTube said no today: nothing more goes up until the reset
+            return 0
+        return self.s.daily_upload_limit - self.history.uploads_since(day)
 
     def upload_record(self, rid: int, result: Result | None = None) -> str:
         rec = self.history.get(rid)
@@ -362,10 +384,13 @@ class Studio:
         try:
             resp = youtube.upload(self.s, Path(rec["video_path"]), body)
         except youtube.QuotaExceeded:
-            log.warning("YouTube quota exhausted — video #%d queued", rid)
+            log.warning("YouTube refused the upload (quota or upload limit) — video #%d queued until midnight Pacific",
+                        rid)
+            self._refused_on = quota_day_start()
             self.history.update_video(rid, status="queued")
             if result:
                 result.status = "queued"
+            notify.send(self.s, "queued", title=rec["title"], detail="YouTube's upload limit reached")
             return "queued"
         except youtube.NotAuthorized:
             raise

@@ -1,0 +1,77 @@
+{
+  "topic": "a cat with three families",
+  "title": "He Was Eating Three Dinners A Night",
+  "hook_text": "THREE DINNERS A NIGHT",
+  "style": "reddit",
+  "cast": [
+    "r/confessions",
+    "u/quiet_otter22"
+  ],
+  "scenes": [
+    {
+      "speaker": "A",
+      "narration": "Am I wrong for feeding my neighbor's cat every night for a whole year?",
+      "search_query": "orange cat window",
+      "image_prompt": "an orange tabby cat sitting at a kitchen window at dusk, warm light"
+    },
+    {
+      "speaker": "A",
+      "narration": "Every evening at seven, this orange cat sat outside my kitchen door and cried like it hadn't eaten in days.",
+      "search_query": "cat door",
+      "image_prompt": "an orange cat sitting outside a back door at night, porch light"
+    },
+    {
+      "speaker": "A",
+      "narration": "So I bought him food. Good food. It became our little routine.",
+      "search_query": "cat eating",
+      "image_prompt": "an orange cat eating from a food bowl on a kitchen floor"
+    },
+    {
+      "speaker": "A",
+      "narration": "Last week my neighbor knocked and asked why her cat was getting so fat.",
+      "search_query": "front door",
+      "image_prompt": "a neighbor knocking on a front door of a suburban house, evening"
+    },
+    {
+      "speaker": "A",
+      "narration": "Turns out she feeds him at six. The family across the street feeds him at eight.",
+      "search_query": "suburban street",
+      "image_prompt": "a quiet suburban street at dusk with houses and warm windows"
+    },
+    {
+      "speaker": "A",
+      "narration": "He has been eating three dinners a night, at three different houses.",
+      "search_query": "fat cat sleeping",
+      "image_prompt": "a very round, well-fed orange cat sleeping on a sofa"
+    },
+    {
+      "speaker": "A",
+      "narration": "We made a group chat. He is on a diet now, and he is furious about it.",
+      "search_query": "grumpy cat",
+      "image_prompt": "an orange cat with an annoyed, grumpy face looking at the camera"
+    },
+    {
+      "speaker": "A",
+      "narration": "Would you have kept feeding him? Follow for the update.",
+      "search_query": "cat sunset",
+      "image_prompt": "an orange cat silhouetted in a window at sunset"
+    }
+  ],
+  "description": "My neighbor's cat had a secret. Would you have kept feeding him?",
+  "hashtags": [
+    "#shorts",
+    "#redditstories",
+    "#cats",
+    "#storytime"
+  ],
+  "tags": [
+    "reddit stories",
+    "cat story",
+    "funny cat",
+    "storytime",
+    "confession",
+    "a cat with three families",
+    "shorts"
+  ],
+  "category": "entertainment"
+}

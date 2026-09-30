@@ -1,5 +1,6 @@
 """Everything drawn on top of the footage: word-synced animated captions, the hook title, the
-watermark, the end call-to-action, and for chat stories an animated text-message screen.
+watermark, the end call-to-action, for chat stories an animated text-message screen, and for
+Reddit-style stories the post card shown while the title is read.
 
 Two renderers produce the same look:
   * Pillow (default) — captions are pre-rendered PNG states played back by ffmpeg's concat demuxer
@@ -651,6 +652,118 @@ class ChatScreen:
         return playlist
 
 
+# ------------------------------------------------------------------------------------------ story post card
+CARD_ACCENTS = ["#FF6B35", "#7C3AED", "#0EA5E9", "#10B981", "#F59E0B", "#EC4899"]
+
+
+def _compact(n: int) -> str:
+    return (f"{n / 1000:.1f}".rstrip("0").rstrip(".") + "k") if n >= 1000 else str(n)
+
+
+def _wrap(text: str, font: ImageFont.FreeTypeFont, width: int, by_char: bool = False) -> list[str]:
+    tokens = list(text) if by_char else text.split()
+    sep = "" if by_char else " "
+    lines, cur = [], ""
+    for tok in tokens:
+        cand = f"{cur}{sep}{tok}" if cur else tok
+        if not cur or font.getlength(cand) <= width:
+            cur = cand
+        else:
+            lines.append(cur)
+            cur = tok.lstrip() if by_char else tok
+    if cur:
+        lines.append(cur)
+    return lines or [""]
+
+
+def post_card_png(settings: Settings, font_path: Path | None, community: str, user: str, title: str,
+                  dest: Path) -> tuple[Path, int, int]:
+    """A forum-post card (community, poster, title, votes, comments) shown while the title is read aloud,
+    the way Reddit story videos open. The numbers are decoration, derived from the title so a re-render
+    draws the same card. Returns (png, x, y)."""
+    W, H, U = settings.width, settings.height, settings.unit
+    cw = int(min(W * 0.88, U * 0.95)) // 2 * 2
+    pad = int(U * 0.045)
+    fp = str(font_path) if font_path else None
+    seed = sum(ord(c) * (i + 1) for i, c in enumerate(title))
+    accent = _rgba(CARD_ACCENTS[seed % len(CARD_ACCENTS)])
+    votes, comments = 1200 + seed * 37 % 46000, 90 + seed * 13 % 3800
+    ink, grey, pill = (26, 26, 27, 255), (112, 117, 122, 255), (234, 237, 239, 255)
+    by_char = settings.language.split("-")[0] in NO_SPACE_LANGS
+
+    size = int(U * 0.058)
+    for _ in range(12):
+        title_f = load_font(fp, size, weight=700)
+        lines = _wrap(title, title_f, cw - 2 * pad, by_char)
+        if len(lines) <= 6:
+            break
+        size = int(size * 0.9)
+    ascent, descent = title_f.getmetrics()
+    line_h = ascent + descent + int(size * 0.08)
+    name_f = load_font(fp, int(U * 0.036), weight=700)
+    meta_f = load_font(fp, int(U * 0.03), weight=500)
+    small_f = load_font(fp, int(U * 0.031), weight=700)
+
+    av = int(U * 0.075)
+    title_top = pad + av + int(pad * 0.55)
+    foot_top = title_top + line_h * len(lines) + int(pad * 0.45)
+    foot_h = int(U * 0.062)
+    ch = foot_top + foot_h + pad
+    img = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((0, 0, cw - 1, ch - 1), radius=int(U * 0.035), fill=(255, 255, 255, 250),
+                        outline=(0, 0, 0, 40), width=2)
+    # header: avatar with the community's initial, community name, poster and age
+    d.ellipse((pad, pad, pad + av, pad + av), fill=accent)
+    core = community.split("/", 1)[-1]
+    d.text((pad + av / 2, pad + av / 2), (core[:1] or "?").upper(),
+           font=load_font(fp, int(av * 0.52), weight=800), anchor="mm", fill=(255, 255, 255, 255))
+    tx = pad + av + int(pad * 0.45)
+    d.text((tx, pad + av * 0.30), community, font=name_f, anchor="lm", fill=ink)
+    d.text((tx, pad + av * 0.76), f"{user} · {3 + seed % 20}h", font=meta_f, anchor="lm", fill=grey)
+    y = title_top
+    for ln in lines:
+        d.text((pad, y + ascent), ln, font=title_f, anchor="ls", fill=ink)
+        y += line_h
+
+    # footer pills: votes, comments, share
+    x, r = pad, foot_h // 2
+    mid = foot_top + foot_h / 2
+    a = foot_h * 0.36                                              # arrow size
+
+    def up(cx: float, cy: float, s: float, down: bool = False) -> None:
+        k = -1 if down else 1
+        d.polygon([(cx - s / 2, cy + k * s * 0.05), (cx, cy - k * s / 2), (cx + s / 2, cy + k * s * 0.05)], fill=ink)
+        d.rectangle((cx - s * 0.17, min(cy, cy + k * s * 0.5), cx + s * 0.17, max(cy, cy + k * s * 0.5)), fill=ink)
+
+    votes_txt = _compact(votes)
+    w1 = int(a * 2 + small_f.getlength(votes_txt) + foot_h * 1.1)
+    d.rounded_rectangle((x, foot_top, x + w1, foot_top + foot_h), radius=r, fill=pill)
+    up(x + foot_h * 0.45, mid, a)
+    d.text((x + foot_h * 0.45 + a * 0.9, mid), votes_txt, font=small_f, anchor="lm", fill=ink)
+    up(x + w1 - foot_h * 0.45, mid, a, down=True)
+    x += w1 + int(pad * 0.4)
+    com_txt = _compact(comments)
+    w2 = int(a * 1.4 + small_f.getlength(com_txt) + foot_h * 0.9)
+    d.rounded_rectangle((x, foot_top, x + w2, foot_top + foot_h), radius=r, fill=pill)
+    bx, bw, bh = x + foot_h * 0.35, a * 1.15, a * 0.85
+    d.rounded_rectangle((bx, mid - bh / 2, bx + bw, mid + bh / 2), radius=int(bh * 0.35), outline=ink,
+                        width=max(2, int(U * 0.004)))
+    d.polygon([(bx + bw * 0.2, mid + bh / 2 - 1), (bx + bw * 0.2, mid + bh * 0.85), (bx + bw * 0.5, mid + bh / 2 - 1)],
+              fill=ink)
+    d.text((bx + bw + a * 0.45, mid), com_txt, font=small_f, anchor="lm", fill=ink)
+    x += w2 + int(pad * 0.4)
+    share = "Share"
+    w3 = int(small_f.getlength(share) + foot_h * 0.9)
+    if x + w3 <= cw - pad:
+        d.rounded_rectangle((x, foot_top, x + w3, foot_top + foot_h), radius=r, fill=pill)
+        d.text((x + w3 / 2, mid), share, font=small_f, anchor="mm", fill=ink)
+
+    img.save(dest)
+    y0 = int(min(max(H * 0.5 - ch / 2, H * 0.12), max(H * 0.12, H - ch - H * 0.12)))
+    return dest, (W - cw) // 2, y0
+
+
 # ------------------------------------------------------------------------------------------ plan
 @dataclass
 class OverlayPlan:
@@ -665,18 +778,23 @@ class OverlayPlan:
     ass: Path | None = None                    # subtitles file (ass)
     fonts_dir: Path | None = None
     chat: tuple[Path, int, int] | None = None  # (ffconcat playlist, x, y) for chat stories
+    card: tuple[Path, int, int] | None = None  # (png, x, y) post card for Reddit-style stories
+    card_until: float = 0.0
 
 
 def build_overlays(settings: Settings, chunks: list[Chunk], total: float, hook_text: str, work: Path, *,
                    labels: dict[str, str] | None = None, chat: list[ChatMessage] | None = None,
-                   contact: str = "") -> OverlayPlan:
+                   contact: str = "", card: tuple[str, str, str] | None = None,
+                   card_until: float = 0.0) -> OverlayPlan:
     """labels: speaker name tags over the captions (dialogue). chat: render a text-message screen
-    instead of captions (the messages are the captions)."""
+    instead of captions (the messages are the captions). card: (community, poster, title) of a post card
+    shown until ``card_until`` in place of the hook title (pass captions that start after it)."""
     style = CAPTION_STYLES.get(settings.caption_style, CAPTION_STYLES["bold"])
     if not settings.caption_uppercase and style.font == "anton":
         style = replace(style, font="sans")
     font_path, family = resolve_font(settings, style.font)
-    hook_until = min(2.8, total * 0.4) if settings.hook_overlay and hook_text else 0.0
+    card = card if card and card_until > 0 else None
+    hook_until = min(2.8, total * 0.4) if settings.hook_overlay and hook_text and not card else 0.0
     cta_text = settings.end_cta.strip()
     cta_from = max(total - 2.6, total * 0.6) if cta_text else 0.0
     hook_y = 0.09 if chat else 0.15
@@ -688,6 +806,12 @@ def build_overlays(settings: Settings, chunks: list[Chunk], total: float, hook_t
         screen = ChatScreen(settings, sans, contact)
         chat_plan = (screen.build(chat, total, work / "chat"), screen.x, screen.y)
         chunks = []
+    card_plan = None
+    if card:
+        if settings.language.split("-")[0] in COMPLEX_LANGS and not features.check("raqm"):
+            log.warning("This Pillow build can't shape %s text; the post card may look wrong", settings.language)
+        sans, _ = resolve_font(settings, "sans")
+        card_plan = post_card_png(settings, sans, *card, work / "card.png")
 
     if needs_ass(settings) and ffmpeg.has_filter("ass"):
         fonts = work / "fonts"
@@ -699,9 +823,10 @@ def build_overlays(settings: Settings, chunks: list[Chunk], total: float, hook_t
                         cta=cta_text, cta_from=cta_from, watermark=settings.watermark_text,
                         hook_y=hook_y, cta_y=0.10 if chat else 0.30, labels=labels)
         log.info("Captions: libass renderer (%s, font %s)", settings.language, family)
-        return OverlayPlan("ass", ass=ass, fonts_dir=fonts, chat=chat_plan)
+        return OverlayPlan("ass", ass=ass, fonts_dir=fonts, chat=chat_plan, card=card_plan,
+                           card_until=card_until if card_plan else 0.0)
 
-    plan = OverlayPlan("pillow", chat=chat_plan)
+    plan = OverlayPlan("pillow", chat=chat_plan, card=card_plan, card_until=card_until if card_plan else 0.0)
     if chunks:
         caps = PillowCaptions(settings, style, font_path, labels)
         plan.captions, plan.captions_y = caps.build(chunks, total, work / "captions"), caps.band_y

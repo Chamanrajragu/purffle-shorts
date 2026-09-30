@@ -40,10 +40,14 @@ STYLES = {
                 "answers with surprising, specific facts. The last line is a punchline.",
     "chat": "A text-message conversation between A and B that tells a gripping story in real time, with "
             "a twist near the end. Written exactly like real texts: short, casual, emotional.",
+    "reddit": "A first-person story told like a viral Reddit post (a confession, an 'am I wrong?' or a 'today I "
+              "messed up'). Scene 1 is the post's title, read aloud; the rest is the story in casual first "
+              "person, building to a twist or an update at the end.",
 }
 MULTI_SPEAKER = {"dialogue", "chat"}
+CARD_STYLES = {"reddit"}                  # single narrator, but the cast names the community and the poster
 AUTO_STYLES = ["facts", "facts", "story", "story", "listicle", "myth", "quiz", "explainer"]
-DEFAULT_CAST = {"dialogue": ["Alex", "Sam"], "chat": ["Unknown", "Me"]}
+DEFAULT_CAST = {"dialogue": ["Alex", "Sam"], "chat": ["Unknown", "Me"], "reddit": ["r/stories", "u/throwaway"]}
 
 # YouTube video category ids
 CATEGORIES = {
@@ -170,6 +174,8 @@ def scene_plan(style: str, target_seconds: int) -> tuple[int, int]:
         return words, max(6, min(18, round(target_seconds / 2.8)))
     if style == "dialogue":
         return words, max(6, min(14, round(target_seconds / 3.5)))
+    if style == "reddit":
+        return words, max(5, min(12, round(target_seconds / 4.5)))
     return words, max(4, min(10, round(target_seconds / 5.5)))
 
 
@@ -183,6 +189,13 @@ def _format_rules(style: str) -> str:
                 "- cast: [contact name shown at the top of the chat (e.g. Mom, Unknown Number, Jake), \"Me\"]. "
                 "B is \"Me\", the phone's owner.\n"
                 "- No emojis. The story must be fiction that is clearly plausible, never about real people.\n")
+    if style == "reddit":
+        return ("- speaker is always \"A\": the poster, telling it in the first person.\n"
+                "- Scene 1 narration is ONLY the post title: a first-person question or confession, max 16 words. "
+                "Spell things out for the voice (\"Am I wrong for\", not \"AITA\"; no abbreviations like TIFU).\n"
+                "- cast: [a fitting community name starting with r/ (e.g. r/confessions, r/pettyrevenge), "
+                "a made-up username starting with u/]. hook_text is not shown for this format.\n"
+                "- Fiction written like a real post: invent every person, never name real people. No emojis.\n")
     return "- speaker is always \"A\" (one narrator). cast: [\"Narrator\"].\n"
 
 
@@ -236,6 +249,13 @@ def _clean_hashtag(tag: str) -> str:
 
 def _speaker(value) -> str:
     return "B" if str(value or "A").strip().upper().startswith("B") else "A"
+
+
+def _handle(name: str, prefix: str) -> str:
+    """'confessions' -> 'r/confessions'; spaces become underscores, as in real handles."""
+    core = re.sub(r"^/?[ru]/", "", name.strip(), flags=re.I)
+    core = re.sub(r"\s+", "_", core).strip("_/") or "anonymous"
+    return prefix + core[:22]
 
 
 def normalize(data: dict, subject: str, style: str, language: str) -> Script:
@@ -293,9 +313,11 @@ def normalize(data: dict, subject: str, style: str, language: str) -> Script:
 
     cast = [truncate_words(re.sub(r"[<>\"{}\[\]]", "", strip_emoji(str(c))).strip(), 24)
             for c in (data.get("cast") or []) if str(c).strip()]
-    if multi:
+    if multi or style in CARD_STYLES:
         defaults = DEFAULT_CAST[style]
         cast = (cast + defaults[len(cast):])[:2] if len(cast) < 2 else cast[:2]
+        if style == "reddit":
+            cast = [_handle(cast[0], "r/"), _handle(cast[1], "u/")]
     else:
         cast = []
 
@@ -350,7 +372,9 @@ def review_prompt(script: Script, settings: Settings, rewrite: bool) -> tuple[st
     task = (f"""Then rewrite it into the strongest version you can. Keep the same subject, format, language ({lang}),
 the same JSON structure and about {words} words in about {n_scenes} scenes. Fix every issue you listed:
 sharpen the hook, cut filler, make vague lines concrete, remove any claim that may not be true, keep the
-payoff for the end, end with a short call to action. Put the rewritten script in "script".""" if rewrite else
+payoff for the end, end with a short call to action. Put the rewritten script in "script".
+Format rules to keep:
+{_format_rules(script.style)}""" if rewrite else
             'Return only "score" and "issues".')
     user = f"""Review this YouTube Short script ({STYLES[script.style]}).
 
@@ -426,6 +450,8 @@ Return the same JSON structure."""
     for mine, theirs in zip(out.scenes, script.scenes):
         mine.search_query, mine.image_prompt, mine.speaker = theirs.search_query, theirs.image_prompt, theirs.speaker
     out.category = script.category
+    if script.style in CARD_STYLES:
+        out.cast = list(script.cast)  # r/community and u/name are handles, not words to translate
     return out
 
 
@@ -480,6 +506,18 @@ _DEMO_DIALOGUE = [
     ("B", "Pretty much. Follow for more ocean weirdness.", "ocean waves"),
 ]
 
+_DEMO_REDDIT = [
+    ("Am I wrong for feeding my neighbor's cat every night for a whole year?", "orange cat window"),
+    ("Every evening at seven, this orange cat sat outside my kitchen door and cried like it hadn't eaten in days.",
+     "cat door"),
+    ("So I bought him food. Good food. It became our little routine.", "cat eating"),
+    ("Last week my neighbor knocked and asked why her cat was getting so fat.", "front door"),
+    ("Turns out she feeds him at six. The family across the street feeds him at eight.", "suburban street"),
+    ("He has been eating three dinners a night, at three different houses.", "fat cat sleeping"),
+    ("We made a group chat. He is on a diet now, and he is furious about it.", "grumpy cat"),
+    ("Would you have kept feeding him? Follow for the update.", "cat sunset"),
+]
+
 _DEMO_CHAT = [
     ("A", "are you still at the aquarium", "aquarium tunnel"),
     ("B", "yeah why", "aquarium fish"),
@@ -507,6 +545,15 @@ def offline_script(subject: str, settings: Settings, style: str = "facts") -> Sc
         else:
             data.update(title="Wait, Octopuses Have Three Hearts?", hook_text="3 HEARTS?!")
         return normalize(data, "octopus superpowers", style, "en")
+    if style == "reddit":
+        data = dict(_DEMO, topic="a cat with three families", title="He Was Eating Three Dinners A Night",
+                    hook_text="THREE DINNERS A NIGHT", cast=["r/confessions", "u/quiet_otter22"],
+                    description="My neighbor's cat had a secret. Would you have kept feeding him?",
+                    hashtags=["#redditstories", "#cats", "#storytime"],
+                    tags=["reddit stories", "cat story", "funny cat", "storytime", "confession"],
+                    category="entertainment",
+                    scenes=[{"narration": n, "search_query": q, "image_prompt": q} for n, q in _DEMO_REDDIT])
+        return normalize(data, "a cat with three families", "reddit", "en")
     if not s or "octopus" in s.lower() or s.lower() in {"demo", "random"}:
         d = _DEMO
         data = dict(d, topic="octopus superpowers",
