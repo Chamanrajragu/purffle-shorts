@@ -1,0 +1,78 @@
+{
+  "topic": "octopus superpowers",
+  "title": "Wait, Octopuses Have Three Hearts?",
+  "hook_text": "3 HEARTS?!",
+  "scenes": [
+    {
+      "narration": "Wait, octopuses have three hearts?",
+      "search_query": "octopus swimming",
+      "image_prompt": "cinematic underwater photo: octopus swimming",
+      "speaker": "A"
+    },
+    {
+      "narration": "Three. And one of them stops beating every time it swims.",
+      "search_query": "octopus underwater",
+      "image_prompt": "cinematic underwater photo: octopus underwater",
+      "speaker": "B"
+    },
+    {
+      "narration": "That can't be healthy.",
+      "search_query": "coral reef",
+      "image_prompt": "cinematic underwater photo: coral reef",
+      "speaker": "A"
+    },
+    {
+      "narration": "It's why they'd rather crawl. Swimming wears them out.",
+      "search_query": "octopus crawling",
+      "image_prompt": "cinematic underwater photo: octopus crawling",
+      "speaker": "B"
+    },
+    {
+      "narration": "Okay, but why is their blood blue?",
+      "search_query": "blue ocean water",
+      "image_prompt": "cinematic underwater photo: blue ocean water",
+      "speaker": "A"
+    },
+    {
+      "narration": "Copper. Their blood carries oxygen with copper instead of iron.",
+      "search_query": "deep sea",
+      "image_prompt": "cinematic underwater photo: deep sea",
+      "speaker": "B"
+    },
+    {
+      "narration": "So they're basically aliens.",
+      "search_query": "jellyfish glowing",
+      "image_prompt": "cinematic underwater photo: jellyfish glowing",
+      "speaker": "A"
+    },
+    {
+      "narration": "Pretty much. Follow for more ocean weirdness.",
+      "search_query": "ocean waves",
+      "image_prompt": "cinematic underwater photo: ocean waves",
+      "speaker": "B"
+    }
+  ],
+  "description": "Three hearts, blue blood and arms that can taste. The octopus might be the strangest animal on Earth. Which fact surprised you most?",
+  "hashtags": [
+    "#shorts",
+    "#octopus",
+    "#ocean",
+    "#animals",
+    "#facts"
+  ],
+  "tags": [
+    "octopus facts",
+    "ocean animals",
+    "marine biology",
+    "weird animals",
+    "animal facts",
+    "octopus superpowers",
+    "shorts"
+  ],
+  "category": "education",
+  "style": "dialogue",
+  "cast": [
+    "Alex",
+    "Sam"
+  ]
+}

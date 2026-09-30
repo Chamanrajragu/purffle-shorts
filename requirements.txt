@@ -10,11 +10,13 @@ tzdata; sys_platform == "win32"
 google-api-python-client>=2.100
 google-auth>=2.23
 google-auth-oauthlib>=1.1
+cryptography<49; sys_platform == "darwin" and platform_machine == "x86_64"   # newer ones have no Intel-Mac wheels
 
 # Claude (Anthropic) provider — other LLMs need no extra package
 anthropic>=1.0
 
 # Optional extras (install only what you use):
-#   faster-whisper   precise word timing for OpenAI/Kokoro/Coqui/system voices
+#   faster-whisper   precise word timing for OpenAI/Kokoro/Coqui/system voices, and the `clip` command
+#   yt-dlp           `clip` straight from a video URL
 #   kokoro soundfile local open-weight voice (Kokoro-82M)
 #   coqui-tts        local Coqui voices

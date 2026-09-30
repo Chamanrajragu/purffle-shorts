@@ -8,6 +8,7 @@ import concurrent.futures
 import logging
 import random
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from . import ffmpeg
@@ -169,6 +170,20 @@ def compose(settings: Settings, segments: list[Path], lengths: list[float], voic
         f.append(f"[{last}][{src_label}]overlay={expr}[{name}]")
         last = name
 
+    if plan.chat:
+        playlist, cx, cy = plan.chat
+        inputs += ["-f", "concat", "-safe", "0", "-i", str(playlist.resolve())]
+        f.append(f"[{idx}:v]format=rgba[chat]")
+        overlay("chat", f"x={cx}:y={cy}:format=auto", "vchat")
+        idx += 1
+    if plan.card:
+        png, cx, cy = plan.card
+        u = plan.card_until
+        inputs += ["-framerate", str(F), "-loop", "1", "-t", f"{u:.3f}", "-i", str(png.resolve())]
+        f.append(f"[{idx}:v]format=rgba,fade=t=in:st=0:d=0.12:alpha=1,"
+                 f"fade=t=out:st={max(0.0, u - 0.25):.3f}:d=0.25:alpha=1[card]")
+        overlay("card", f"x={cx}:y={cy}:eof_action=pass:format=auto", "vcard")
+        idx += 1
     if plan.mode == "pillow":
         if plan.captions:
             inputs += ["-f", "concat", "-safe", "0", "-i", str(plan.captions.resolve())]
@@ -220,11 +235,20 @@ def compose(settings: Settings, segments: list[Path], lengths: list[float], voic
         f.append("[v0]anull[mix]")
     f.append(f"[mix]loudnorm=I={settings.loudness_lufs}:TP=-1.5:LRA=11,aresample=48000[aout]")
 
-    args = [*inputs, "-filter_complex", ";".join(f), "-map", "[vout]", "-map", "[aout]",
-            *_encode_args(settings, final=True), "-r", str(F),
-            "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-            "-t", f"{total:.3f}", "-movflags", "+faststart", str(out.resolve())]
-    ffmpeg.run(args, label="final render", cwd=work)
+    def args(encode: list[str]) -> list[str]:
+        return [*inputs, "-filter_complex", ";".join(f), "-map", "[vout]", "-map", "[aout]",
+                *encode, "-r", str(F), "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+                "-t", f"{total:.3f}", "-movflags", "+faststart", str(out.resolve())]
+    encode = _encode_args(settings, final=True)
+    try:
+        ffmpeg.run(args(encode), label="final render", cwd=work)
+    except ffmpeg.FFmpegError:
+        if encode[1] == "libx264":
+            raise
+        # Hardware encoders fail on some machines/drivers (busy GPU, unsupported size): use the CPU.
+        log.warning("Encoder %s failed; rendering again with libx264", encode[1])
+        ffmpeg.run(args(_encode_args(replace(settings, video_encoder="libx264"), final=True)),
+                   label="final render (libx264)", cwd=work)
     return out
 
 

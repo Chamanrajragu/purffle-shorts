@@ -13,6 +13,7 @@ class Word:
     text: str
     start: float
     end: float
+    speaker: str = "A"
 
 
 NO_SPACE_LANGS = {"zh", "ja"}
@@ -122,29 +123,34 @@ class SceneTiming:
         return self.end - self.start
 
 
-def scene_timeline(scene_texts: list[str], words: list[Word], total: float, language: str = "en") -> list[SceneTiming]:
-    """Scene boundaries follow the voice: scene k starts when its first word is spoken."""
-    counts = [len(tokenize(t, language)) for t in scene_texts]
-    starts, idx = [], 0
-    for c in counts:
-        if idx < len(words):
-            starts.append(words[idx].start)
-        else:
-            starts.append(starts[-1] if starts else 0.0)
-        idx += c
+def scene_timeline(scene_texts: list[str], words: list[Word], total: float, language: str = "en",
+                   starts: list[float] | None = None, min_len: float = 1.2) -> list[SceneTiming]:
+    """Scene boundaries follow the voice: scene k starts when its first word is spoken. ``starts`` can
+    give them directly (multi-voice audio is made line by line, so the boundaries are exact)."""
+    if starts is None:
+        counts = [len(tokenize(t, language)) for t in scene_texts]
+        starts, idx = [], 0
+        for c in counts:
+            if idx < len(words):
+                starts.append(words[idx].start)
+            else:
+                starts.append(starts[-1] if starts else 0.0)
+            idx += c
+    starts = list(starts)
     starts[0] = 0.0
     out = []
     for k, s in enumerate(starts):
         e = starts[k + 1] if k + 1 < len(starts) else total
         out.append(SceneTiming(k, s, e))
-    # Merge scenes that ended up too short to read (< 1.2s) into their neighbour.
+    # Grow each shot until it lasts at least min_len (too-short scenes can't be read), then start the next;
+    # a short final shot joins the one before it.
     merged: list[SceneTiming] = []
     for st in out:
-        if merged and st.duration < 1.2:
+        if merged and merged[-1].duration < min_len:
             merged[-1].end = st.end
         else:
             merged.append(st)
-    if len(merged) > 1 and merged[-1].duration < 1.2:
+    if len(merged) > 1 and merged[-1].duration < min_len:
         last = merged.pop()
         merged[-1].end = last.end
     return merged
@@ -159,6 +165,10 @@ class Chunk:
     @property
     def text(self) -> str:
         return " ".join(w.text for w in self.words)
+
+    @property
+    def speaker(self) -> str:
+        return self.words[0].speaker if self.words else "A"
 
 
 def caption_chunks(words: list[Word], max_words: int = 3, max_chars: int = 20, total: float | None = None) -> list[Chunk]:
@@ -175,7 +185,7 @@ def caption_chunks(words: list[Word], max_words: int = 3, max_chars: int = 20, t
         if cur:
             gap = w.start - cur[-1].end
             chars = sum(len(x.text) + 1 for x in cur) + len(w.text)
-            if len(cur) >= max_words or chars > max_chars or gap > 0.45:
+            if len(cur) >= max_words or chars > max_chars or gap > 0.45 or w.speaker != cur[-1].speaker:
                 flush()
         cur.append(w)
         if w.text[-1:] in ".!?;:" or (w.text[-1:] == "," and len(cur) >= 2):

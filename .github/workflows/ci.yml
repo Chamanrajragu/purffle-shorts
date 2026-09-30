@@ -22,5 +22,35 @@ jobs:
         run: pip install -e ".[dev]"
       - name: Lint
         run: ruff check .
+      - name: Studio JS syntax
+        run: node --check purffle_shorts/web/app.js
       - name: Tests (includes an offline end-to-end render)
         run: pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the image (not pushed)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: purffle-shorts:ci
+      - name: Smoke test
+        run: docker run --rm purffle-shorts:ci --version
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build and check the PyPI package
+        run: |
+          pip install build twine
+          python -m build
+          twine check --strict dist/*

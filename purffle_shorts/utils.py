@@ -18,7 +18,7 @@ log = logging.getLogger("purffle")
 
 T = TypeVar("T")
 
-USER_AGENT = "PurffleShorts/2.0 (+https://github.com/Chamanrajragu/purffle-shorts)"
+USER_AGENT = "PurffleShorts/3.0 (+https://github.com/Chamanrajragu/purffle-shorts)"
 
 
 class PermanentError(Exception):
@@ -103,9 +103,15 @@ _SECRET_RE = re.compile(r"(?i)\b((?:api_?)?key|token|access_token)=[^&\s'\"]+")
 _IP_RE = re.compile(r"(?i)(?<![\w:.])(?:(?:[0-9a-f]{1,4}:){4,7}[0-9a-f]{1,4}|(?:\d{1,3}\.){3}\d{1,3})(?![\w:.])")
 
 
+# Webhook URLs carry their secret in the path.
+_HOOK_RE = re.compile(r"(?i)(/api/webhooks/\d+/|hooks\.slack\.com/services/)[\w/-]+")
+
+
 def redact(text: object) -> str:
-    """Hide API keys that some services (e.g. Pixabay) put in URLs, and IP addresses, before they reach a log."""
-    return _IP_RE.sub("<ip>", _SECRET_RE.sub(r"\1=***", str(text)))
+    """Hide API keys that some services (e.g. Pixabay) put in URLs, webhook tokens and IP addresses
+    before they reach a log."""
+    t = _HOOK_RE.sub(r"\1***", _SECRET_RE.sub(r"\1=***", str(text)))
+    return _IP_RE.sub("<ip>", t)
 
 
 def slugify(text: str, max_len: int = 48) -> str:

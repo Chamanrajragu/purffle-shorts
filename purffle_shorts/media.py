@@ -114,9 +114,10 @@ def pixabay_videos(query: str, key: str, prefer_4k: bool = False) -> list[MediaI
     return items
 
 
-def pixabay_photos(query: str, key: str) -> list[MediaItem]:
+def pixabay_photos(query: str, key: str, orientation: str = "portrait") -> list[MediaItem]:
+    pix = {"portrait": "vertical", "landscape": "horizontal"}.get(orientation, "all")
     r = http().get("https://pixabay.com/api/", timeout=30, params={
-        "key": key, "q": query[:100], "image_type": "photo", "orientation": "vertical",
+        "key": key, "q": query[:100], "image_type": "photo", "orientation": pix,
         "per_page": 20, "safesearch": "true"})
     raise_for_status(r, "Pixabay photo search")
     return [MediaItem("pixabay-photo", str(h["id"]), "image", h["largeImageURL"], h.get("imageWidth", 0),
@@ -125,12 +126,14 @@ def pixabay_photos(query: str, key: str) -> list[MediaItem]:
 
 
 # ------------------------------------------------------------------------------------------ AI images
-def openai_image(prompt: str, dest: Path, key: str, model: str) -> Path:
+def openai_image(prompt: str, dest: Path, key: str, model: str, orientation: str = "portrait") -> Path:
     body = {"model": model, "prompt": prompt, "n": 1}
     if model.startswith("dall-e"):
-        body.update(size="1024x1792", response_format="b64_json", quality="hd" if model == "dall-e-3" else "standard")
+        size = {"portrait": "1024x1792", "landscape": "1792x1024"}.get(orientation, "1024x1024")
+        body.update(size=size, response_format="b64_json", quality="hd" if model == "dall-e-3" else "standard")
     else:
-        body.update(size="1024x1536", quality="medium")
+        size = {"portrait": "1024x1536", "landscape": "1536x1024"}.get(orientation, "1024x1024")
+        body.update(size=size, quality="medium")
 
     def _do():
         r = http().post("https://api.openai.com/v1/images/generations", json=body, timeout=240,
@@ -149,12 +152,14 @@ def openai_image(prompt: str, dest: Path, key: str, model: str) -> Path:
 _POLLINATIONS_LOCK = threading.Lock()
 
 
-def pollinations_image(prompt: str, dest: Path, width: int, height: int) -> Path:
+def pollinations_image(prompt: str, dest: Path, width: int, height: int, key: str = "") -> Path:
     url = (f"https://image.pollinations.ai/prompt/{quote(prompt[:900])}"
            f"?width={width}&height={height}&nologo=true&model=flux&seed={random.randint(1, 10**9)}")
-    # Anonymous use allows one queued request per IP; parallel scenes would all get HTTP 429.
+    headers = {"Authorization": f"Bearer {key}"} if key else None
+    # One request at a time: parallel scenes would all be rate-limited. Since September 2026 anonymous
+    # use is limited to roughly one image every few minutes (HTTP 402 "payment required" otherwise).
     with _POLLINATIONS_LOCK:
-        return download(url, dest, timeout=180, max_bytes=30 * 1024 * 1024)
+        return download(url, dest, headers=headers, timeout=180, max_bytes=30 * 1024 * 1024)
 
 
 # ------------------------------------------------------------------------------------------ selection
@@ -163,9 +168,15 @@ def simplify_query(query: str) -> str:
     return " ".join(words[:2])
 
 
-def _score(item: MediaItem, need: float) -> float:
+def _shape(item: MediaItem) -> str:
+    if item.height > item.width:
+        return "portrait"
+    return "landscape" if item.width > item.height else "square"
+
+
+def _score(item: MediaItem, need: float, orientation: str = "portrait") -> float:
     s = 0.0
-    if item.portrait:
+    if _shape(item) == orientation or (orientation == "square" and item.width and item.height):
         s += 3
     if item.kind == "video":
         s += 2 if item.duration >= need else (1 if item.duration >= need * 0.6 else 0)
@@ -193,18 +204,20 @@ class Visuals:
         s = self.s
         items: list[MediaItem] = []
         try:
+            o = s.orientation
             if source == "pexels" and s.pexels_api_key:
-                items = pexels_videos(query, s.pexels_api_key, s.prefer_4k)
+                items = pexels_videos(query, s.pexels_api_key, s.prefer_4k, orientation=o)
                 if len(items) < 3:
                     items += pexels_videos(query, s.pexels_api_key, s.prefer_4k, orientation="")
                 if not items:
-                    items = pexels_photos(query, s.pexels_api_key)
+                    items = pexels_photos(query, s.pexels_api_key, orientation=o)
             elif source == "pexels-photos" and s.pexels_api_key:
-                items = pexels_photos(query, s.pexels_api_key)
+                items = pexels_photos(query, s.pexels_api_key, orientation=o)
             elif source == "pixabay" and s.pixabay_api_key:
-                items = pixabay_videos(query, s.pixabay_api_key, s.prefer_4k) or pixabay_photos(query, s.pixabay_api_key)
+                items = (pixabay_videos(query, s.pixabay_api_key, s.prefer_4k)
+                         or pixabay_photos(query, s.pixabay_api_key, orientation=o))
             elif source == "pixabay-photos" and s.pixabay_api_key:
-                items = pixabay_photos(query, s.pixabay_api_key)
+                items = pixabay_photos(query, s.pixabay_api_key, orientation=o)
             elif source == "local":
                 items = self._local(query)
             seen: set[str] = set()
@@ -242,7 +255,7 @@ class Visuals:
             if fresh[0].source == "local":
                 best = fresh[0] if fresh[0].extra.get("overlap") else random.choice(fresh)
             else:
-                best = max(fresh, key=lambda c: _score(c, need))
+                best = max(fresh, key=lambda c: _score(c, need, self.s.orientation))
             self.used.add(best.key)
             return best
 
@@ -259,12 +272,23 @@ class Visuals:
         dest = dest_dir / f"scene{idx:02d}_ai.png"
         try:
             if source in ("openai-images", "ai", "dalle", "gpt-image") and s.openai_api_key:
-                openai_image(full, dest, s.openai_api_key, s.image_model)
+                openai_image(full, dest, s.openai_api_key, s.image_model, s.orientation)
             elif source == "pollinations":
-                pollinations_image(full, dest.with_suffix(".jpg"), s.width, s.height)
+                pollinations_image(full, dest.with_suffix(".jpg"), s.width, s.height, s.pollinations_api_key)
                 dest = dest.with_suffix(".jpg")
             else:
                 return None
+        except PermanentError as e:
+            # A refused key or an exhausted free tier won't recover within this video: stop asking.
+            with self.lock:
+                if source in self.sources:
+                    self.sources = [x for x in self.sources if x != source]
+                    hint = (" Anonymous Pollinations use is now heavily rate-limited; set POLLINATIONS_API_KEY "
+                            "or use Pexels/Pixabay (free keys)." if source == "pollinations" and " 402" in str(e)
+                            else "")
+                    log.warning("AI images from %s refused (%s); skipping it for this video.%s",
+                                source, redact(e)[:160], hint)
+            return None
         except Exception as e:
             log.warning("AI image (%s) for scene %d failed: %s", source, idx + 1, redact(e))
             return None

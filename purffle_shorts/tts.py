@@ -41,6 +41,21 @@ EDGE_VOICES = {
     "vi": "vi-VN-NamMinhNeural", "th": "th-TH-NiwatNeural", "fil": "fil-PH-AngeloNeural",
     "uk": "uk-UA-OstapNeural", "sv": "sv-SE-MattiasNeural",
 }
+# Second speaker for dialogue and chat formats (a contrasting voice). Override with TTS_VOICE_B.
+EDGE_VOICES_B = {
+    "en": "en-US-AvaMultilingualNeural", "es": "es-MX-DaliaNeural", "fr": "fr-FR-DeniseNeural",
+    "de": "de-DE-KatjaNeural", "it": "it-IT-ElsaNeural", "pt": "pt-BR-FranciscaNeural",
+    "hi": "hi-IN-SwaraNeural", "ta": "ta-IN-PallaviNeural", "te": "te-IN-ShrutiNeural",
+    "bn": "bn-IN-TanishaaNeural", "mr": "mr-IN-AarohiNeural", "ur": "ur-PK-UzmaNeural",
+    "ar": "ar-SA-ZariyahNeural", "ru": "ru-RU-SvetlanaNeural", "ja": "ja-JP-NanamiNeural",
+    "ko": "ko-KR-SunHiNeural", "zh": "zh-CN-XiaoxiaoNeural", "id": "id-ID-GadisNeural",
+    "tr": "tr-TR-EmelNeural", "nl": "nl-NL-ColetteNeural", "pl": "pl-PL-ZofiaNeural",
+    "vi": "vi-VN-HoaiMyNeural", "th": "th-TH-PremwadeeNeural", "fil": "fil-PH-BlessicaNeural",
+    "uk": "uk-UA-PolinaNeural", "sv": "sv-SE-SofieNeural",
+}
+SECOND_VOICE = {"openai": "nova", "elevenlabs": "21m00Tcm4TlvDq8ikWAM", "kokoro": "af_heart"}
+LINE_GAP = 0.18  # silence between two speakers' lines
+
 KOKORO_LANG = {"en": ("a", "am_michael"), "es": ("e", "em_alex"), "fr": ("f", "ff_siwis"),
                "hi": ("h", "hm_omega"), "it": ("i", "im_nicola"), "ja": ("j", "jm_kumo"),
                "pt": ("p", "pm_alex"), "zh": ("z", "zm_yunxi")}
@@ -54,6 +69,7 @@ class Speech:
     engine: str
     voice: str
     timing: str  # native | aligned | estimated
+    line_starts: list[float] | None = None  # multi-voice: when each line starts
 
 
 def _pick_voice(settings: Settings, default: str) -> str:
@@ -299,6 +315,66 @@ def synthesize(text: str, out_dir: Path, settings: Settings) -> Speech:
         words = transfer_timings(tokens, aligned, dur) if aligned else estimate_timings(tokens, dur)
     log.info("Voice: %s/%s, %.1fs, %d words (%s timing)", engine, voice, dur, len(words), timing)
     return Speech(audio=audio, words=words, duration=dur, engine=engine, voice=voice, timing=timing)
+
+
+def second_voice(settings: Settings) -> str:
+    if settings.tts_voice_b:
+        return settings.tts_voice_b
+    engine = settings.tts_engine
+    if engine == "edge":
+        return EDGE_VOICES_B.get(settings.language.split("-")[0], EDGE_VOICES_B["en"])
+    return SECOND_VOICE.get(engine, "")
+
+
+def synthesize_lines(lines: list[tuple[str, str]], out_dir: Path, settings: Settings) -> Speech:
+    """Voice a conversation: each (speaker, text) line with that speaker's voice, joined into one track.
+
+    Word timings stay exact because every line is timed on its own and shifted by where it lands."""
+    import concurrent.futures
+    from dataclasses import replace
+    out_dir.mkdir(parents=True, exist_ok=True)
+    voice_a = _pick_voice(settings, "")  # blank = engine default for speaker A
+    voice_b = second_voice(settings)
+    # One voice per speaker for the whole video (a comma list in TTS_VOICE must not change mid-talk).
+    cfg = {"A": replace(settings, tts_voice=voice_a), "B": replace(settings, tts_voice=voice_b or voice_a)}
+
+    def one(i: int, speaker: str, text: str) -> Speech:
+        return synthesize(text, out_dir / f"line{i:02d}", cfg[speaker])
+
+    workers = 4 if settings.tts_engine in ("edge", "openai", "elevenlabs") else 1
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        parts = list(ex.map(lambda a: one(*a), [(i, sp, t) for i, (sp, t) in enumerate(lines)]))
+
+    # Normalise every line to the same PCM format and join them with a short pause in between.
+    gap = out_dir / "gap.wav"
+    ffmpeg.run(["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-t", f"{LINE_GAP:.3f}", str(gap)], label="gap")
+    listing, words, starts, t = [], [], [], 0.0
+    for i, ((speaker, _), sp) in enumerate(zip(lines, parts)):
+        wav = out_dir / f"line{i:02d}.wav"
+        # Keep only the spoken part (plus a breath): engines pad each clip with silence, and between two
+        # speakers that padding adds up to a second-long dead gap.
+        cut0 = max(0.0, sp.words[0].start - 0.05) if sp.words else 0.0
+        cut1 = min(sp.duration, sp.words[-1].end + 0.15) if sp.words else sp.duration
+        ffmpeg.run(["-i", str(sp.audio), "-af", f"atrim=start={cut0:.3f}:end={cut1:.3f},asetpts=PTS-STARTPTS",
+                    "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", str(wav)], label="line")
+        dur = ffmpeg.duration(wav)
+        starts.append(t)
+        words += [Word(w.text, round(w.start - cut0 + t, 3), round(w.end - cut0 + t, 3), speaker) for w in sp.words]
+        listing.append(f"file '{wav.name}'")
+        t += dur
+        if i + 1 < len(parts):
+            listing.append(f"file '{gap.name}'")
+            t += LINE_GAP
+    (out_dir / "lines.txt").write_text("\n".join(listing) + "\n")
+    audio = out_dir / "voice.wav"
+    ffmpeg.run(["-f", "concat", "-safe", "0", "-i", "lines.txt", "-c:a", "pcm_s16le", str(audio.name)],
+               label="join voices", cwd=out_dir)
+    dur = ffmpeg.duration(audio)
+    timing = min((p.timing for p in parts), key=["estimated", "aligned", "native"].index)
+    voices = "/".join(dict.fromkeys(p.voice for p in parts))
+    log.info("Voices: %s, %.1fs, %d lines, %d words (%s timing)", voices, dur, len(lines), len(words), timing)
+    return Speech(audio=audio, words=words, duration=dur, engine=parts[0].engine, voice=voices, timing=timing,
+                  line_starts=starts)
 
 
 def list_edge_voices(language: str = "") -> list[dict]:

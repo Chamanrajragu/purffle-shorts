@@ -25,6 +25,7 @@ The tests need no API keys and no network. They include an end-to-end test that 
 - Keep a change focused on one thing, and add a test for new behaviour.
 - Never commit keys, `.env`, `credentials.json`, `token.json` or rendered videos. `.gitignore` covers them.
 - New settings go in `config.py` and are documented in `.env.example`.
+- The Studio's front end is plain HTML/CSS/JS in `purffle_shorts/web/` with no build step. It runs under a strict Content-Security-Policy: no inline scripts or `style=""` attributes (set sizes from JS, as `paint()` in `app.js` does).
 - If a change affects what users see, update `README.md` and `CHANGELOG.md`.
 
 ## Reporting bugs

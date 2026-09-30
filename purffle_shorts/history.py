@@ -1,5 +1,6 @@
 """SQLite history: every video made, what was uploaded or scheduled, which stock clips and topics
-were used (so nothing repeats), and today's upload count (YouTube quota)."""
+were used (so nothing repeats), today's upload count (YouTube quota), the idea queue filled by the
+planner, and view counts for the videos that are live."""
 
 from __future__ import annotations
 
@@ -24,7 +25,22 @@ CREATE TABLE IF NOT EXISTS videos (
 );
 CREATE TABLE IF NOT EXISTS media_used (key TEXT PRIMARY KEY, used_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS topics_used (key TEXT PRIMARY KEY, used_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS ideas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    style TEXT, notes TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',   -- pending | used
+    used_at TEXT, video_id INTEGER
+);
 """
+
+# Columns added after 2.0; existing databases get them on open.
+VIDEO_COLUMNS = {
+    "score": "INTEGER",            # Script Doctor retention score, 0-100
+    "parent_id": "INTEGER",        # the original video when this one is a translated copy
+    "views": "INTEGER", "likes": "INTEGER", "comments": "INTEGER", "stats_at": "TEXT",
+}
 
 
 def now_iso() -> str:
@@ -38,6 +54,10 @@ class History:
         self._lock = threading.Lock()
         with self._db() as c:
             c.executescript(SCHEMA)
+            have = {r["name"] for r in c.execute("PRAGMA table_info(videos)")}
+            for col, kind in VIDEO_COLUMNS.items():
+                if col not in have:
+                    c.execute(f"ALTER TABLE videos ADD COLUMN {col} {kind}")
 
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
@@ -80,6 +100,9 @@ class History:
     def recent(self, limit: int = 20) -> list[dict]:
         return self._all("SELECT * FROM videos ORDER BY id DESC LIMIT ?", (limit,))
 
+    def delete_video(self, vid: int) -> None:
+        self._exec("DELETE FROM videos WHERE id = ?", (vid,))
+
     def recent_titles(self, limit: int = 40) -> list[str]:
         return [r["title"] for r in self._all(
             "SELECT title FROM videos WHERE title IS NOT NULL ORDER BY id DESC LIMIT ?", (limit,))]
@@ -100,6 +123,53 @@ class History:
     def stats(self) -> dict:
         rows = self._all("SELECT status, COUNT(*) AS n FROM videos GROUP BY status")
         return {r["status"]: r["n"] for r in rows}
+
+    # -- channel performance --
+    def live_video_ids(self, limit: int = 500) -> list[str]:
+        return [r["youtube_id"] for r in self._all(
+            "SELECT youtube_id FROM videos WHERE youtube_id IS NOT NULL ORDER BY id DESC LIMIT ?", (limit,))]
+
+    def set_stats(self, youtube_id: str, views: int, likes: int, comments: int) -> None:
+        self._exec("UPDATE videos SET views = ?, likes = ?, comments = ?, stats_at = ? WHERE youtube_id = ?",
+                   (views, likes, comments, now_iso(), youtube_id))
+
+    def performers(self, n: int = 5, *, best: bool = True, min_age_hours: int = 48) -> list[dict]:
+        """Most (or least) viewed videos that have been public long enough for the numbers to mean something."""
+        cutoff = datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() - min_age_hours * 3600,
+                                        timezone.utc).isoformat(timespec="seconds")
+        order = "DESC" if best else "ASC"
+        return self._all(
+            "SELECT id, title, style, views, likes, comments FROM videos WHERE views IS NOT NULL "
+            f"AND COALESCE(publish_at, uploaded_at) <= ? ORDER BY views {order} LIMIT ?", (cutoff, n))
+
+    # -- idea queue (planner) --
+    def add_idea(self, subject: str, style: str = "", notes: str = "") -> int:
+        return self._exec("INSERT INTO ideas (created_at, subject, style, notes) VALUES (?, ?, ?, ?)",
+                          (now_iso(), subject.strip(), style or None, notes or None))
+
+    def ideas(self, status: str | None = "pending", limit: int = 200) -> list[dict]:
+        if status:
+            return self._all("SELECT * FROM ideas WHERE status = ? ORDER BY id LIMIT ?", (status, limit))
+        return self._all("SELECT * FROM ideas ORDER BY id DESC LIMIT ?", (limit,))
+
+    def claim_idea(self) -> dict | None:
+        """Take the oldest pending idea (atomically, so parallel workers never get the same one)."""
+        with self._db() as c:
+            row = c.execute("SELECT * FROM ideas WHERE status = 'pending' ORDER BY id LIMIT 1").fetchone()
+            if not row:
+                return None
+            c.execute("UPDATE ideas SET status = 'used', used_at = ? WHERE id = ?", (now_iso(), row["id"]))
+            return dict(row)
+
+    def link_idea(self, idea_id: int, video_id: int) -> None:
+        self._exec("UPDATE ideas SET video_id = ? WHERE id = ?", (video_id, idea_id))
+
+    def release_idea(self, idea_id: int) -> None:
+        """Put an idea back in the queue after its video failed."""
+        self._exec("UPDATE ideas SET status = 'pending', used_at = NULL WHERE id = ?", (idea_id,))
+
+    def delete_idea(self, idea_id: int) -> None:
+        self._exec("DELETE FROM ideas WHERE id = ?", (idea_id,))
 
     # -- de-duplication --
     def used_media(self) -> set[str]:
