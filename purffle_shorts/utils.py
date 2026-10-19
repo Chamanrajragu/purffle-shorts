@@ -39,6 +39,11 @@ def check_cancel() -> None:
         raise Cancelled("cancelled")
 
 
+def emphasis_key(word: str) -> str:
+    """How a caption word is compared for highlighting: lower case, without the punctuation around it."""
+    return re.sub(r"^\W+|\W+$", "", word.lower(), flags=re.UNICODE)
+
+
 def with_retries(
     fn: Callable[[], T],
     *,

@@ -141,6 +141,12 @@ def _common(p: argparse.ArgumentParser) -> None:
     r.add_argument("--fps", type=int)
     r.add_argument("--encoder", dest="video_encoder", help="libx264|h264_videotoolbox|h264_nvenc|auto")
     r.add_argument("--no-music", action="store_true", help="skip background music")
+    r.add_argument("--background", dest="background_video", metavar="VIDEO",
+                   help="play this video (or a random one from this folder) under the story, e.g. gameplay")
+    r.add_argument("--layout", dest="background_layout", choices=["full", "split"],
+                   help="with --background: full = it is the picture; split = footage on top, it below")
+    r.add_argument("--no-sfx", action="store_true", help="no sound effects (whooshes, pops, hits)")
+    r.add_argument("--no-emoji", action="store_true", help="no emoji popping up above the captions")
     u = p.add_argument_group("publishing")
     u.add_argument("--no-upload", action="store_true", help="render only, keep the MP4")
     u.add_argument("--privacy", help="public|unlisted|private")
@@ -155,7 +161,7 @@ def build_settings(args: argparse.Namespace) -> Settings:
     ov = {k: getattr(args, k, None) for k in (
         "style", "language", "target_seconds", "llm_provider", "llm_model", "tts_engine", "tts_voice",
         "tts_voice_b", "caption_style", "caption_position", "color_grade", "transition", "fps", "video_encoder",
-        "privacy")}
+        "privacy", "background_video", "background_layout")}
     if getattr(args, "niche", None):
         ov["niches"] = args.niche
     if getattr(args, "visuals", None):
@@ -170,6 +176,14 @@ def build_settings(args: argparse.Namespace) -> Settings:
         ov["also_languages"] = [x.strip().lower() for x in args.also_lang.split(",") if x.strip()]
     if getattr(args, "no_music", False):
         ov["music_volume"] = 0.0
+    if getattr(args, "no_sfx", False):
+        ov["sound_effects"] = False
+    if getattr(args, "no_emoji", False):
+        ov["caption_emoji"] = False
+    if getattr(args, "no_jump_cuts", False):
+        ov["clip_jump_cuts"] = False
+    if getattr(args, "no_zoom", False):
+        ov["clip_zoom"] = False
     if getattr(args, "no_upload", False):
         ov["upload"] = False
     if getattr(args, "publish_times", None):
@@ -226,7 +240,10 @@ def print_result(r) -> None:
     if not r.ok:
         print(f"\n✘ {r.language + ' ' if r.language else ''}failed: {r.error}")
         return
-    score = f"\n  retention score: {r.score}/100" if r.score is not None else ""
+    kind = "virality score" if r.reason else "retention score"
+    score = f"\n  {kind}: {r.score}/100" if r.score is not None else ""
+    if r.reason:
+        score += f" ({r.reason})"
     print(f"\n✔ {r.title}\n  folder: {r.folder}\n  status: {r.status}{score}"
           + (f"\n  https://youtube.com/shorts/{r.youtube_id}" if r.youtube_id else ""))
 
@@ -377,7 +394,7 @@ def cmd_clip(args, s: Settings) -> int:
     line = live_line(args)
     try:
         results = make_clips(Studio(s, progress=line), args.source, count=args.count, crop=args.crop,
-                             min_seconds=args.min_seconds, max_seconds=args.max_seconds)
+                             min_seconds=args.min_seconds, max_seconds=args.max_seconds, brief=args.prompt or "")
     finally:
         end_live(line)
     for r in results:
@@ -450,6 +467,10 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--crop", choices=["center", "blur", "face"], default="center",
                    help="center = fill the frame; blur = whole picture over a blurred copy; "
                         "face = follow the speaker's face (pip install opencv-python-headless)")
+    c.add_argument("--prompt", metavar="BRIEF",
+                   help='what to look for, e.g. "the funniest moments" or "every tip about sleep" (needs an LLM)')
+    c.add_argument("--no-jump-cuts", action="store_true", help="keep the pauses and filler sounds")
+    c.add_argument("--no-zoom", action="store_true", help="no punch-in zoom between sentences")
     c.add_argument("--min-seconds", type=int, default=20)
     c.add_argument("--max-seconds", type=int, default=58)
     c.set_defaults(func=cmd_clip)

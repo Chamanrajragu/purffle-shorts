@@ -20,6 +20,7 @@ log = logging.getLogger("purffle")
 SCOPE_UPLOAD = "https://www.googleapis.com/auth/youtube.upload"
 SCOPE_MANAGE = "https://www.googleapis.com/auth/youtube"
 SCOPE_READONLY = "https://www.googleapis.com/auth/youtube.readonly"
+SCOPE_CAPTIONS = "https://www.googleapis.com/auth/youtube.force-ssl"  # captions.insert needs this one
 RETRY_STATUS = {500, 502, 503, 504}
 
 _lock = threading.Lock()
@@ -40,6 +41,8 @@ def scopes_for(settings: Settings) -> list[str]:
 def auth_scopes(settings: Settings) -> list[str]:
     """Everything the current settings will need; asked for once by the `auth` command."""
     extra = [SCOPE_READONLY] if settings.learn_from_stats and not settings.youtube_api_key else []
+    if settings.upload_captions:
+        extra.append(SCOPE_CAPTIONS)
     return scopes_for(settings) + extra
 
 
@@ -139,7 +142,8 @@ def to_rfc3339(dt: datetime) -> str:
 
 
 def build_body(settings: Settings, title: str, description: str, tags: list[str], category_id: str,
-               language: str, publish_at: datetime | None = None) -> dict:
+               language: str, publish_at: datetime | None = None,
+               localizations: dict[str, dict] | None = None) -> dict:
     status = {
         "privacyStatus": "private" if publish_at else settings.privacy,
         "selfDeclaredMadeForKids": settings.made_for_kids,
@@ -149,7 +153,7 @@ def build_body(settings: Settings, title: str, description: str, tags: list[str]
         status["containsSyntheticMedia"] = True
     if publish_at:
         status["publishAt"] = to_rfc3339(publish_at)
-    return {
+    body = {
         "snippet": {
             "title": title[:100],
             "description": description[:4900],
@@ -160,6 +164,11 @@ def build_body(settings: Settings, title: str, description: str, tags: list[str]
         },
         "status": status,
     }
+    loc = {k: {"title": v["title"][:100], "description": v.get("description", "")[:4900]}
+           for k, v in (localizations or {}).items() if k != language and v.get("title")}
+    if loc:  # viewers whose YouTube is in one of these languages see the title and description in it
+        body["localizations"] = loc
+    return body
 
 
 def upload(settings: Settings, video: Path, body: dict) -> dict:
@@ -170,7 +179,8 @@ def upload(settings: Settings, video: Path, body: dict) -> dict:
     with _lock:  # one upload at a time; the API client is not thread-safe
         yt = service(settings, interactive=False)
         media = MediaFileUpload(str(video), mimetype="video/mp4", chunksize=8 * 1024 * 1024, resumable=True)
-        request = yt.videos().insert(part="snippet,status", body=body, media_body=media)
+        parts = "snippet,status" + (",localizations" if body.get("localizations") else "")
+        request = yt.videos().insert(part=parts, body=body, media_body=media)
         response, retry, last_pct = None, 0, -1
         while response is None:
             try:
@@ -207,3 +217,29 @@ def upload(settings: Settings, video: Path, body: dict) -> dict:
             except Exception as e:
                 log.warning("Could not add video to playlist %s: %s", settings.playlist_id, e)
         return response
+
+
+def upload_captions(settings: Settings, video_id: str, srt: Path, language: str, name: str = "") -> bool:
+    """Add the video's own subtitles as a caption track (400 quota units). Exact captions help YouTube
+    search and viewers who watch with the sound off. Skipped, with a hint, when the saved authorization
+    predates UPLOAD_CAPTIONS."""
+    from googleapiclient.http import MediaFileUpload
+    if not srt.exists() or not srt.read_text(encoding="utf-8").strip():
+        return False
+    try:
+        with _lock:
+            yt = service(settings, interactive=False, extra_scopes=[SCOPE_CAPTIONS])
+            yt.captions().insert(
+                part="snippet",
+                body={"snippet": {"videoId": video_id, "language": language, "name": name or language,
+                                  "isDraft": False}},
+                media_body=MediaFileUpload(str(srt), mimetype="application/octet-stream", resumable=False),
+            ).execute()
+    except NotAuthorized:
+        log.warning("Caption upload skipped: run `purffle-shorts auth` once more to allow it")
+        return False
+    except Exception as e:
+        log.warning("Caption upload failed: %s", e)
+        return False
+    log.info("Captions uploaded (%s)", language)
+    return True

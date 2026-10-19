@@ -97,7 +97,8 @@ class StudioServer:
         from .pipeline import Studio
         self.settings = settings
         self.studio = Studio(settings)
-        self.token = secrets.token_urlsafe(24)
+        # STUDIO_TOKEN fixes the write token, so scripts and tools like n8n can call the API (see docs/api.md)
+        self.token = os.getenv("STUDIO_TOKEN", "").strip() or secrets.token_urlsafe(24)
         self.jobs: dict[int, Job] = {}
         self.queue: queue.Queue[Job] = queue.Queue()
         self.current: Job | None = None
@@ -191,6 +192,14 @@ class StudioServer:
             ov["visual_sources"] = [str(v).lower() for v in p["visuals"]][:6]
         if p.get("music") is False:
             ov["music_volume"] = 0.0
+        if "background" in p:
+            bg = str(p.get("background") or "").strip()[:1000]
+            ov["background_video"] = bg if not bg or Path(bg).expanduser().exists() else None
+        ov["background_layout"] = _choice(p.get("layout"), ("full", "split"))
+        for key, field_name in (("sfx", "sound_effects"), ("emphasis", "caption_emphasis"), ("emoji", "caption_emoji"),
+                                ("jump_cuts", "clip_jump_cuts"), ("zoom", "clip_zoom")):
+            if isinstance(p.get(key), bool):
+                ov[field_name] = p[key]
         s = s.with_overrides(**ov)
         if p.get("offline"):
             s = replace(s, offline=True)
@@ -253,8 +262,9 @@ class StudioServer:
         if job.kind == "clip":
             from .clipper import make_clips
             results = make_clips(studio, str(p.get("source") or ""), count=int(p.get("count") or 3),
-                                 crop=p.get("crop") or "center", upload=bool(p.get("upload")),
-                                 min_seconds=int(p.get("min_seconds") or 20), max_seconds=int(p.get("max_seconds") or 58))
+                                 crop=p.get("crop") or "center", upload=bool(p.get("upload")) and s.upload,
+                                 min_seconds=int(p.get("min_seconds") or 20), max_seconds=int(p.get("max_seconds") or 58),
+                                 brief=str(p.get("brief") or "")[:500])
             job.result = {"clips": [_result(r) for r in results]}
             return any(r.ok for r in results)
         # make
@@ -262,7 +272,9 @@ class StudioServer:
         langs = p.get("also_langs")
         if isinstance(langs, str):
             langs = [x.strip().lower() for x in langs.split(",") if x.strip()]
-        r = studio.make(p.get("topic") or None, source=p.get("source") or None, upload=bool(p.get("upload")),
+        # UPLOAD=false in .env is a hard stop, whatever a request asks for
+        r = studio.make(p.get("topic") or None, source=p.get("source") or None,
+                        upload=bool(p.get("upload")) and s.upload,
                         style=s.style if s.style != "auto" else None, script=script, url=p.get("url") or None,
                         languages=[str(x)[:8] for x in (langs or [])][:6])
         job.result = _result(r)
@@ -363,7 +375,27 @@ class StudioServer:
                 "providers": [{"name": n, "label": p.label, "ready": n in ready or p.local}
                               for n, p in PRESETS.items()],
                 "tts": ["edge", "openai", "elevenlabs", "kokoro", "coqui", "system"],
-                "visuals": ["pexels", "pixabay", "local", "pollinations", "openai-images"]}
+                "visuals": ["pexels", "pixabay", "local", "pollinations", "openai-images"],
+                "backgrounds": self.backgrounds()}
+
+    def backgrounds(self) -> list[dict]:
+        """Background videos to offer: BACKGROUND_VIDEO (a file, or every video in that folder) and
+        media/backgrounds/."""
+        from .media import VIDEO_EXT
+        s = self.settings
+        out: list[dict] = []
+        if s.background_video:
+            out.append({"path": s.background_video, "name": Path(s.background_video).name + (
+                " (random)" if Path(s.background_video).expanduser().is_dir() else "")})
+        for root in [Path(s.background_video).expanduser(), Path(s.media_dir) / "backgrounds"]:
+            if not root.is_dir():
+                continue
+            for f in sorted(root.rglob("*")):
+                if f.suffix.lower() in VIDEO_EXT and not f.name.startswith(".") and len(out) < 60:
+                    item = {"path": str(f), "name": f.name}
+                    if item not in out:
+                        out.append(item)
+        return out
 
     def channel(self) -> dict:
         from .analytics import calibration
@@ -383,6 +415,7 @@ class StudioServer:
 def _result(r) -> dict:
     return {"ok": r.ok, "title": r.title, "status": r.status, "youtube_id": r.youtube_id, "error": r.error,
             "id": r.record_id, "score": r.score, "language": r.language, "seconds": round(r.seconds, 1),
+            "reason": getattr(r, "reason", ""),
             "variants": [_result(v) for v in getattr(r, "variants", [])]}
 
 

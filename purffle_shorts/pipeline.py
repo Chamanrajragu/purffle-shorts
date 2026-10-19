@@ -16,33 +16,35 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import analytics, ffmpeg, notify, topics, tts, youtube
+from . import analytics, ffmpeg, notify, seo, sfx, topics, tts, youtube
 from .config import Settings
 from .history import History, now_iso
 from .llm import LLM, LLMConfigError
-from .media import MediaItem, Visuals
-from .overlays import ChatMessage, build_overlays
-from .render import pick_cover, render_video
+from .media import MediaItem, Visuals, background_item
+from .overlays import EMOJI_CREDIT, ChatMessage, build_overlays
+from .render import pick_cover, render_video, split_sizes
 from .script import (
     AUTO_STYLES,
     CARD_STYLES,
     DEFAULT_CAST,
+    LANGUAGES,
     MULTI_SPEAKER,
     STYLES,
     Script,
     load_script,
+    localize_metadata,
     review_script,
     translate_script,
     write_script,
 )
-from .timing import caption_chunks, scene_timeline, split_shots, srt, tokenize
+from .timing import SceneTiming, caption_chunks, scene_timeline, split_shots, srt, tokenize
 from .topics import Topic, pick_topic
 from .utils import Cancelled, check_cancel, redact, slugify, truncate_words
 
 log = logging.getLogger("purffle")
 
 END_PAD = 0.6          # seconds of breathing room after the last word
-REUSABLE_SOURCES = {"generated", "local", "openai-images", "ai", "dalle", "gpt-image", "pollinations"}
+REUSABLE_SOURCES = {"generated", "local", "background", "openai-images", "ai", "dalle", "gpt-image", "pollinations"}
 AI_SOURCES = {"openai-images", "ai", "dalle", "gpt-image", "pollinations"}
 
 # Rough share of the work done when each stage starts (for progress bars before any timing is learned).
@@ -105,6 +107,7 @@ class Result:
     score: int | None = None
     language: str = ""
     variants: list[Result] = field(default_factory=list)
+    reason: str = ""          # clips: why the AI picked this moment
 
 
 def quota_day_start() -> str:
@@ -122,19 +125,22 @@ def seconds_until_quota_reset() -> float:
     return max(60.0, nxt - pt.timestamp() + 120)
 
 
-def final_title(script: Script, settings: Settings | None = None) -> str:
-    t = script.title
+def final_title(script: Script, settings: Settings | None = None, text: str | None = None) -> str:
+    t = script.title if text is None else text
     if settings is not None and not settings.vertical:
         return truncate_words(t, 100)  # a 16:9 video is not a Short
     return f"{t} #shorts" if len(t) + 8 <= 100 else truncate_words(t, 100)
 
 
-def final_description(script: Script, credits: set[str], settings: Settings) -> str:
-    parts = [script.description.strip()] if script.description.strip() else []
+def final_description(script: Script, credits: set[str], settings: Settings, text: str | None = None,
+                      extra: list[str] | None = None) -> str:
+    body = (script.description if text is None else text).strip()
+    parts = [body] if body else []
     tags = script.hashtags if settings.vertical else [h for h in script.hashtags if h.lower() != "#shorts"]
     parts.append(" ".join(tags))
     if settings.credit_footage and credits:
         parts.append("Footage: " + ", ".join(sorted(credits)))
+    parts.extend(extra or [])
     return "\n\n".join(p for p in parts if p)
 
 
@@ -292,8 +298,13 @@ class Studio:
                 style = analytics.choose_style(self.history, sorted(set(AUTO_STYLES)))
                 if style:
                     log.info("Format from the channel's results: %s", style)
+            if s.seo_keywords and self.llm is not None and not s.offline and not pick.keywords:
+                pick.keywords = seo.search_phrases(pick.subject, s.language, s.trends_geo)
+                if pick.keywords:
+                    log.info("YouTube searches: %s", "; ".join(pick.keywords[:4]))
             script = write_script(self.llm, pick.subject, s, source=pick.source, avoid=self.history.recent_titles(),
-                                  context=pick.context, style=style, insights=insights)
+                                  context=pick.context, style=style, insights=insights,
+                                  keywords=seo.keywords_block(pick.keywords))
             if self.llm is not None and s.script_review != "off":
                 self._step("review", "Script Doctor")
                 script = review_script(self.llm, script, s)
@@ -376,9 +387,17 @@ class Studio:
             shots = split_shots(timeline, speech.words, 0 if chat else s.max_shot_seconds)
             joins = [a.index == b.index for a, b in zip(shots, shots[1:])]
             T = s.transition_seconds if s.transition != "none" else 0.0
+            background = background_item(s, total)
+            split = background is not None and s.background_layout == "split"
+            if background is not None:
+                log.info("Background (%s): %s from %.0fs", s.background_layout, background.id,
+                         background.extra.get("start", 0))
 
             self._step("footage", f"{len(timeline)} scenes, {len(shots)} shots")
-            if media_map:
+            if background is not None and not split:
+                # The whole Short plays over one continuous stretch of the background video.
+                shots, joins, media, credits = [SceneTiming(0, 0.0, total)], [], [background], set()
+            elif media_map:
                 media = _media_for(shots, media_map)
                 credits = set(credits or ())
             else:
@@ -388,7 +407,9 @@ class Studio:
                 wanted = [st for st in shots if st.part == 0 or not ai_first]
                 jobs = [(script.scenes[st.index].search_query, script.scenes[st.index].image_prompt,
                          st.duration + T) for st in wanted]
-                visuals = Visuals(s, self.history.used_media())
+                # split layout: the footage fills the top half, so search for the shape of that half
+                visuals = Visuals(replace(s, resolution=split_sizes(s)[0]) if split else s,
+                                  self.history.used_media())
                 got = dict(zip(((st.index, st.part) for st in wanted),
                                visuals.for_scenes(jobs, script.topic, work / "media", progress=self._sub)))
                 media = [got.get((st.index, st.part)) or got[(st.index, 0)] for st in shots]
@@ -410,13 +431,21 @@ class Studio:
                     community, user = (script.cast + DEFAULT_CAST["reddit"][len(script.cast):])[:2]
                     card = (community, user, script.scenes[0].narration)
                     on_screen = caption_chunks(speech.words[n0:], s.caption_max_words, total=total)
+            emoji = []  # each scene's emoji pops up as the scene starts (not over a chat or a post card)
+            for k, (sc, tm) in enumerate(zip(script.scenes, timeline)):
+                if sc.emoji and not chat and not (card and k == 0):
+                    emoji.append((tm.start + 0.05, min(tm.end, tm.start + 1.65), sc.emoji))
             plan = build_overlays(s, on_screen, total, script.hook_text, work, labels=labels, chat=messages,
-                                  contact=script.speaker_name("A"), card=card, card_until=card_until)
+                                  contact=script.speaker_name("A"), card=card, card_until=card_until,
+                                  emphasis={k for sc in script.scenes for k in sc.emphasis}, emoji=emoji)
 
             self._step("render", f"{s.width}x{s.height}")
             video = folder / ("short.mp4" if s.vertical else "video.mp4")
+            effects = sfx.events_for(scene_starts=[st.start for st, j in zip(shots[1:], joins) if not j],
+                                     message_starts=speech.line_starts if messages else None,
+                                     hook=bool(plan.hook_until or plan.card_until))
             render_video(s, media, [st.duration for st in shots], speech.audio, total, plan, video, work, joins,
-                         progress=self._sub)
+                         progress=self._sub, effects=effects, background=background if split else None)
 
             self._step("check")
             info = ffmpeg.probe(video)
@@ -428,16 +457,32 @@ class Studio:
             (folder / "captions.srt").write_text(srt(chunks), encoding="utf-8")
 
             title = final_title(script, s)
-            description = final_description(script, credits, s)
+            extra = [EMOJI_CREDIT] if plan.emoji and s.credit_footage else []
+            description = final_description(script, credits, s, extra=extra)
+            localizations = {}
+            wanted = [x for x in s.localize_metadata if x != s.language]
+            if wanted and self.llm is not None and not s.offline:
+                try:
+                    for lang, v in localize_metadata(self.llm, script, wanted).items():
+                        localizations[lang] = {"title": final_title(script, s, v["title"]),
+                                               "description": final_description(script, credits, s,
+                                                                                v["description"], extra)}
+                    log.info("Title and description localised: %s", ", ".join(localizations) or "none")
+                except Cancelled:
+                    raise
+                except Exception as e:  # a nicety: never fail the video over it
+                    log.warning("Localising the title and description failed: %s", redact(e))
             meta = {
                 "title": title, "description": description, "tags": script.tags,
                 "category_id": script.category_id, "language": s.language,
                 "topic": script.topic, "source": pick.source, "style": script.style,
                 "duration": round(info["duration"], 2), "resolution": f"{s.width}x{s.height}",
                 "llm": writer, "score": script.score, "rubric": script.rubric, "review": script.review,
+                "search_keywords": pick.keywords, "localizations": localizations,
                 "cast": script.cast,
                 "voice": f"{speech.engine}:{speech.voice}", "timing": speech.timing,
-                "visuals": [{"source": m.source, "id": m.id, "kind": m.kind, "query": m.query} for m in media],
+                "visuals": [{"source": m.source, "id": m.id, "kind": m.kind, "query": m.query}
+                            for m in media + ([background] if split else [])],
                 "parent_id": parent_id, "created_at": now_iso(),
             }
             (folder / "metadata.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False))
@@ -532,7 +577,8 @@ class Studio:
         publish = youtube.next_publish_slot(self.s, self.history.scheduled_times())
         body = youtube.build_body(self.s, rec["title"], rec["description"] or "",
                                   json.loads(rec["tags"] or "[]"), meta.get("category_id", "27"),
-                                  meta.get("language", self.s.language), publish)
+                                  meta.get("language", self.s.language), publish,
+                                  localizations=meta.get("localizations"))
         try:
             resp = youtube.upload(self.s, Path(rec["video_path"]), body)
         except youtube.QuotaExceeded:
@@ -554,6 +600,10 @@ class Studio:
             notify.send(self.s, "failed", title=rec["title"], detail=f"upload failed: {redact(e)}")
             return "failed"
         vid = resp.get("id")
+        if vid and self.s.upload_captions:
+            lang = meta.get("language", self.s.language)
+            youtube.upload_captions(self.s, vid, folder / "captions.srt", lang,
+                                    LANGUAGES.get(lang.split("-")[0], lang))
         status = "scheduled" if publish else "uploaded"
         publish_iso = youtube.to_rfc3339(publish) if publish else None
         fields = dict(status=status, youtube_id=vid, uploaded_at=now_iso(), publish_at=publish_iso, error=None)

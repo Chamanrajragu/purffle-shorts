@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 from .config import Settings
-from .utils import clean_narration, strip_emoji, truncate_words
+from .utils import clean_narration, emphasis_key, strip_emoji, truncate_words
 
 log = logging.getLogger("purffle")
 
@@ -63,8 +63,10 @@ SCENE_SCHEMA = {
         "narration": {"type": "string"},
         "search_query": {"type": "string"},
         "image_prompt": {"type": "string"},
+        "emphasis": {"type": "array", "items": {"type": "string"}},
+        "emoji": {"type": "string"},
     },
-    "required": ["speaker", "narration", "search_query", "image_prompt"],
+    "required": ["speaker", "narration", "search_query", "image_prompt", "emphasis", "emoji"],
     "additionalProperties": False,
 }
 
@@ -128,6 +130,8 @@ class Scene:
     search_query: str
     image_prompt: str = ""
     speaker: str = "A"
+    emphasis: list[str] = field(default_factory=list)  # words of the narration highlighted on screen
+    emoji: str = ""                                    # one emoji popped in above the captions
 
 
 @dataclass
@@ -218,7 +222,7 @@ def _format_rules(style: str) -> str:
 
 
 def build_prompt(subject: str, style: str, settings: Settings, avoid: list[str], context: str = "",
-                 insights: str = "") -> tuple[str, str]:
+                 insights: str = "", keywords: str = "") -> tuple[str, str]:
     lang = LANGUAGES.get(settings.language, settings.language)
     words, n_scenes = scene_plan(style, settings.target_seconds)
     system = (
@@ -230,6 +234,7 @@ def build_prompt(subject: str, style: str, settings: Settings, avoid: list[str],
         avoid_block = "Do NOT repeat any of these recent videos:\n" + "\n".join(f"- {a}" for a in avoid[:40]) + "\n\n"
     ctx = f"Background information (use it, don't invent beyond it):\n{context.strip()}\n\n" if context else ""
     ins = f"{insights.strip()}\n\n" if insights else ""
+    ins += f"{keywords.strip()}\n\n" if keywords else ""
     user = f"""Write one YouTube Short.
 
 Subject: {subject}
@@ -246,13 +251,15 @@ Language: {lang} for narration, title, hook_text, cast and description. search_q
 - Narration is spoken by a voice: no emojis, hashtags, labels, brackets or stage directions.
 - search_query: 1-4 English words describing concrete, filmable stock footage for that scene (e.g. "octopus underwater", "old library books"). No abstract words.
 - image_prompt: one vivid English sentence for an AI image of that scene, no text or letters in the image.
+- emphasis: the 1-2 words of that scene's narration that carry it (a number, a name, the surprising word), copied exactly as written there. They are highlighted on screen; use [] when nothing stands out.
+- emoji: ONE emoji that fits that scene, popped up on screen above the captions (e.g. 🐙 for an octopus, 🤯 for a twist), or "" when none fits. Never put emoji in the narration.
 - title: max 60 characters, curiosity-driven but honest, no hashtags, no quotes.
 - hook_text: max 6 words shown on screen during the first seconds.
 - description: 2-3 sentences plus one question that invites comments. No hashtags.
 - hashtags: 3-5 relevant hashtags. tags: 8-15 search keywords.
 - category: one of {", ".join(CATEGORIES)}.
 
-Return JSON with keys: topic, title, hook_text, cast, scenes (array of {{speaker, narration, search_query, image_prompt}}), description, hashtags, tags, category."""
+Return JSON with keys: topic, title, hook_text, cast, scenes (array of {{speaker, narration, search_query, image_prompt, emphasis, emoji}}), description, hashtags, tags, category."""
     return system, user
 
 
@@ -276,6 +283,43 @@ def _handle(name: str, prefix: str) -> str:
     return prefix + core[:22]
 
 
+_KEY_WORD = re.compile(r"\w", re.UNICODE)
+_STOP = {"the", "and", "but", "for", "with", "that", "this", "was", "are", "you", "your", "its", "his", "her",
+         "they", "them", "their", "from", "have", "has", "had", "not", "all", "can", "will", "just", "into"}
+
+
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U00002B00-\U00002BFF]")
+
+
+def one_emoji(value) -> str:
+    """The first emoji in ``value`` (with its variation selector, skin tone or zero-width-joined parts),
+    or "" when there is none."""
+    text = str(value or "").strip()
+    m = _EMOJI.search(text)
+    if not m:
+        return ""
+    out, i = m.group(), m.end()
+    while i < len(text) and (text[i] in "\ufe0f\u200d" or "\U0001F3FB" <= text[i] <= "\U0001F3FF"
+                             or (text[i - 1] == "\u200d" and _EMOJI.match(text[i]))):
+        out += text[i]
+        i += 1
+    return out.rstrip("\u200d")
+
+
+def _emphasis(value, narration: str, limit: int = 3) -> list[str]:
+    """The LLM's emphasis words that really occur in the narration (so they can be found when the line is
+    spoken), split into single words, without common little words."""
+    spoken = {emphasis_key(w) for w in narration.split()}
+    out: list[str] = []
+    items = value if isinstance(value, list) else [value] if isinstance(value, str) else []
+    for item in items:
+        for w in str(item).split():
+            k = emphasis_key(w)
+            if k and _KEY_WORD.search(k) and k in spoken and k not in _STOP and k not in out:
+                out.append(k)
+    return out[:limit]
+
+
 def normalize(data: dict, subject: str, style: str, language: str) -> Script:
     multi = style in MULTI_SPEAKER
     raw_scenes = data.get("scenes") or []
@@ -289,7 +333,8 @@ def normalize(data: dict, subject: str, style: str, language: str) -> Script:
         query = _clean_tag(s.get("search_query") or "") or subject
         scenes.append(Scene(narration=narration, search_query=truncate_words(query, 60),
                             image_prompt=str(s.get("image_prompt") or query).strip(),
-                            speaker=_speaker(s.get("speaker")) if multi else "A"))
+                            speaker=_speaker(s.get("speaker")) if multi else "A",
+                            emphasis=_emphasis(s.get("emphasis"), narration), emoji=one_emoji(s.get("emoji"))))
     if not scenes:
         raise ValueError("script has no narration")
     limit = 20 if style == "chat" else 12
@@ -368,11 +413,11 @@ def word_count(text: str, language: str = "en") -> int:
 
 def write_script(llm, subject: str, settings: Settings, *, source: str = "niche",
                  avoid: list[str] | None = None, context: str = "", style: str | None = None,
-                 insights: str = "") -> Script:
+                 insights: str = "", keywords: str = "") -> Script:
     style = style if style in STYLES else pick_style(settings, source)
     if llm is None:
         return offline_script(subject, settings, style)
-    system, user = build_prompt(subject, style, settings, avoid or [], context, insights)
+    system, user = build_prompt(subject, style, settings, avoid or [], context, insights, keywords)
     data = llm.complete_json(system, user, SCRIPT_SCHEMA)
     script = normalize(data, subject, style, settings.language)
     log.info("Script (%s, %d words, %d scenes): %s", style, word_count(script.narration, settings.language),
@@ -590,6 +635,7 @@ Rules:
   the way a native creator would say it (not word for word). Keep numbers and names accurate.
 - Keep EXACTLY {len(script.scenes)} scenes in the same order, with the same speaker for each.
 - Keep search_query and image_prompt unchanged (English).
+- emphasis: the same key words in {lang}, copied exactly from your translated narration.
 - Hashtags and tags in {lang} where people search in {lang}, otherwise English.
 Return the same JSON structure."""
     data = llm.complete_json(system, user, SCRIPT_SCHEMA, temperature=0.4)  # faithful, not creative
@@ -601,6 +647,55 @@ Return the same JSON structure."""
     out.category = script.category
     if script.style in CARD_STYLES:
         out.cast = list(script.cast)  # r/community and u/name are handles, not words to translate
+    return out
+
+
+LOCALIZE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"language": {"type": "string"}, "title": {"type": "string"},
+                               "description": {"type": "string"}},
+                "required": ["language", "title", "description"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["items"],
+    "additionalProperties": False,
+}
+
+
+def localize_metadata(llm, script: Script, languages: list[str]) -> dict[str, dict[str, str]]:
+    """The title and description in other languages, for YouTube's per-language metadata: viewers whose
+    YouTube is set to one of them see the video under a title in their own language. One LLM call."""
+    langs = [x for x in dict.fromkeys(languages) if x and x != script.language]
+    if not langs:
+        return {}
+    names = ", ".join(f"{x} ({LANGUAGES.get(x.split('-')[0], x)})" for x in langs)
+    system = ("You are a native-level translator for YouTube creators. You reply with a single JSON object "
+              "and nothing else.")
+    user = f"""Translate this YouTube Short's title and description into each of these languages: {names}.
+
+Title: {script.title}
+Description: {script.description}
+
+Write them the way a native creator in that language would (not word for word), and keep names and numbers
+exact. Title: max 90 characters, no hashtags, no quotes. Description: the same sentences, no hashtags.
+Return JSON: {{"items": [{{"language": code, "title": ..., "description": ...}}, ...]}} with the codes above."""
+    data = llm.complete_json(system, user, LOCALIZE_SCHEMA, max_tokens=4000, temperature=0.3)
+    out: dict[str, dict[str, str]] = {}
+    for item in data.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("language") or "").strip()
+        title = re.sub(r"#\w+", "", strip_emoji(str(item.get("title") or ""))).strip(" '\"-:")
+        if code in langs and title:
+            desc = re.sub(r"(?<!\w)#\w+", "", strip_emoji(str(item.get("description") or ""))).strip()
+            out[code] = {"title": truncate_words(title, 90), "description": desc}
     return out
 
 
@@ -630,12 +725,17 @@ _DEMO = {
     "title": "Octopuses Are Basically Aliens",
     "hook_text": "THIS ANIMAL HAS 3 HEARTS",
     "scenes": [
-        ("An octopus has three hearts, and one of them stops when it swims.", "octopus swimming"),
-        ("Its blood is blue, because it carries oxygen with copper instead of iron.", "blue ocean water"),
-        ("Most of its neurons are not in its head. They are spread through its eight arms.", "octopus tentacles"),
-        ("Each arm can taste what it touches, using thousands of sensors in its suckers.", "octopus suckers closeup"),
-        ("And it changes color in a split second to vanish against the reef.", "coral reef fish"),
-        ("Which fact surprised you most? Follow for more.", "deep sea diver"),
+        ("An octopus has three hearts, and one of them stops when it swims.", "octopus swimming",
+         ["three hearts"], "🐙"),
+        ("Its blood is blue, because it carries oxygen with copper instead of iron.", "blue ocean water",
+         ["blue", "copper"], "🩸"),
+        ("Most of its neurons are not in its head. They are spread through its eight arms.", "octopus tentacles",
+         ["neurons", "eight"], "🧠"),
+        ("Each arm can taste what it touches, using thousands of sensors in its suckers.", "octopus suckers closeup",
+         ["taste"], "👅"),
+        ("And it changes color in a split second to vanish against the reef.", "coral reef fish", ["vanish"],
+         "🫥"),
+        ("Which fact surprised you most? Follow for more.", "deep sea diver", [], "🤯"),
     ],
     "description": "Three hearts, blue blood and arms that can taste. The octopus might be the strangest "
                    "animal on Earth. Which fact surprised you most?",
@@ -706,7 +806,8 @@ def offline_script(subject: str, settings: Settings, style: str = "facts") -> Sc
     if not s or "octopus" in s.lower() or s.lower() in {"demo", "random"}:
         d = _DEMO
         data = dict(d, topic="octopus superpowers",
-                    scenes=[{"narration": n, "search_query": q, "image_prompt": q} for n, q in d["scenes"]])
+                    scenes=[{"narration": n, "search_query": q, "image_prompt": q, "emphasis": e, "emoji": m}
+                            for n, q, e, m in d["scenes"]])
         return normalize(data, "octopus superpowers", "facts", "en")
     lines = [
         f"Most people think they know {s}. They don't.",

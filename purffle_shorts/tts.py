@@ -291,8 +291,24 @@ def _align_faster_whisper(audio: Path, language: str, model_name: str = "small",
             kwargs["initial_prompt"] = prompt[:800]
         if vad:
             kwargs.update(vad_filter=True, condition_on_previous_text=False)
-        segments, _ = model.transcribe(str(audio), **kwargs)
+        segments, _ = model.transcribe(_pcm16k(audio), **kwargs)
         return [Word(w.word.strip(), w.start, w.end) for seg in segments for w in (seg.words or [])]
+
+
+def _pcm16k(audio: Path):
+    """The audio as the 16 kHz mono float samples Whisper works on, decoded by our ffmpeg. faster-whisper's
+    own decoder (PyAV) breaks whenever the two packages' versions drift apart (faster-whisper 1.2.1 with
+    PyAV 19 fails with "unexpected keyword argument 'metadata_errors'")."""
+    import subprocess
+
+    import numpy as np  # installed with faster-whisper
+
+    from . import ffmpeg
+    proc = subprocess.run([ffmpeg.ffmpeg_bin(), "-v", "error", "-nostdin", "-i", str(audio), "-vn", "-ac", "1",
+                           "-ar", "16000", "-f", "f32le", "-"], capture_output=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"could not decode {Path(audio).name}: {proc.stderr.decode(errors='replace')[-300:]}")
+    return np.frombuffer(proc.stdout, dtype=np.float32)
 
 
 def _align_openai(audio: Path, language: str, api_key: str) -> list[Word]:

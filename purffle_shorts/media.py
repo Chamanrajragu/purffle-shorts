@@ -49,6 +49,32 @@ class MediaItem:
         return self.height > self.width
 
 
+# ------------------------------------------------------------------------------------------ background video
+def background_item(settings: Settings, seconds: float) -> MediaItem | None:
+    """One continuous stretch of BACKGROUND_VIDEO (a file, or a random video from a folder) long enough for
+    the whole Short, starting at a random point so consecutive videos don't all open on the same frames."""
+    from . import ffmpeg
+    if not settings.background_video:
+        return None
+    root = Path(settings.background_video).expanduser()
+    if root.is_dir():
+        files = sorted(f for f in root.rglob("*") if f.suffix.lower() in VIDEO_EXT and not f.name.startswith("."))
+    else:
+        files = [root] if root.is_file() else []
+    if not files:
+        log.warning("BACKGROUND_VIDEO=%s has no video files; using footage instead", settings.background_video)
+        return None
+    f = random.choice(files)
+    info = ffmpeg.probe(f)
+    if not info["has_video"]:
+        log.warning("%s has no picture; using footage instead", f)
+        return None
+    dur = info["duration"]
+    start = random.uniform(0.0, dur - seconds - 0.5) if dur > seconds + 1.0 else 0.0
+    return MediaItem("background", f.name, "video", width=info["width"], height=info["height"], duration=dur,
+                     path=f, query="background", extra={"start": round(start, 2)})
+
+
 # ------------------------------------------------------------------------------------------ Pexels
 def _pexels_pick_file(files: list[dict], prefer_4k: bool) -> dict | None:
     files = [f for f in files if f.get("link") and f.get("width") and f.get("height")

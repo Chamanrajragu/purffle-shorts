@@ -7,6 +7,7 @@ TOPIC_SOURCES=niche:4,trending:1,wikipedia:1
   reddit     r/todayilearned top posts of the day
   file       your own list: one topic per line in topics.txt (each used once)
   rss        the newest unused item from your RSS_FEEDS (blogs, news sites, podcasts)
+  search     questions people type into YouTube's search box about one of your NICHES
 
 Ideas saved by the planner (`plan` command or the Studio's Ideas page) are always used first.
 A single video can also be made from a web page (--url) or a local text/markdown file (--from-file).
@@ -19,7 +20,7 @@ import logging
 import random
 import re
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
@@ -44,6 +45,7 @@ class Topic:
     context: str = ""
     style: str = ""
     idea_id: int | None = None
+    keywords: list[str] = field(default_factory=list)  # real YouTube searches handed to the script writer
 
 
 def _weighted_sources(settings: Settings) -> list[tuple[str, float]]:
@@ -93,6 +95,23 @@ def from_trends(settings: Settings, history: History) -> Topic | None:
         if not title or history.topic_used(key) or SENSITIVE.search(blob):
             continue
         return Topic(title, "trending", key=key, context="\n".join(news[:3]))
+    return None
+
+
+def from_search(settings: Settings, history: History) -> Topic | None:
+    from . import seo
+    niches = list(settings.niches or ["interesting facts"])
+    random.shuffle(niches)
+    for niche in niches[:3]:
+        qs = seo.question_topics(niche, lambda p: history.topic_used(f"search:{p}"), settings.language,
+                                 settings.trends_geo)
+        if qs:
+            listed = "\n".join(f"- {q}" for q in qs)
+            return Topic(niche, "search", key=f"search:{qs[0]}", keywords=qs,
+                         context=f"Questions people really type into YouTube about {niche}:\n{listed}\n"
+                                 "Answer the ONE that best fits the niche and makes the best Short (skip any that "
+                                 "is about something else, such as a game or a show that shares a word). Put "
+                                 "its exact words in the title.")
     return None
 
 
@@ -293,7 +312,7 @@ def pick_topic(settings: Settings, history: History, explicit: str | None = None
     names, weights = zip(*choices)
     name = random.choices(names, weights=weights, k=1)[0] if sum(weights) > 0 else "niche"
     fetch = {"file": from_file, "trending": from_trends, "wikipedia": from_wikipedia, "reddit": from_reddit,
-             "rss": from_rss}
+             "rss": from_rss, "search": from_search}
     if name in fetch:
         try:
             topic = fetch[name](settings, history)

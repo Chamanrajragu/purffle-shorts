@@ -162,11 +162,14 @@ def transcript_block(sents: list[Sentence]) -> str:
 
 
 # ------------------------------------------------------------------------------------------ choosing moments
-def clip_prompt(sents: list[Sentence], count: int, min_s: int, max_s: int, settings: Settings) -> tuple[str, str]:
+def clip_prompt(sents: list[Sentence], count: int, min_s: int, max_s: int, settings: Settings,
+                brief: str = "") -> tuple[str, str]:
     system = ("You are a short-form video editor who turns long videos into viral YouTube Shorts. You reply with a "
               "single JSON object and nothing else.")
+    ask = (f"\nThe creator's brief, which comes first: {brief.strip()}\nOnly pick moments that fit this brief.\n"
+           if brief.strip() else "")
     user = f"""Below is the transcript of a long video, one sentence per line with [start-end] times in seconds.
-
+{ask}
 Pick the {count} best moments to publish as standalone YouTube Shorts:
 - each {min_s}-{max_s} seconds long, starting at a sentence start and ending at a sentence end;
 - the first sentence must hook a viewer who has NOT seen the rest (a bold claim, a question, a surprising fact);
@@ -200,7 +203,7 @@ def _snap(sents: list[Sentence], start: float, end: float, min_s: float, max_s: 
 
 
 def pick_clips(llm, sents: list[Sentence], settings: Settings, count: int, min_s: int = 20,
-               max_s: int = 58) -> list[ClipPlan]:
+               max_s: int = 58, brief: str = "") -> list[ClipPlan]:
     if llm is None:  # offline: windows spread evenly over the whole video, each starting on a sentence
         plans, nxt = [], 0
         if not sents:
@@ -220,7 +223,7 @@ def pick_clips(llm, sents: list[Sentence], settings: Settings, count: int, min_s
                                   hook_text=""))
             nxt = j + 1
         return plans
-    system, user = clip_prompt(sents, count, min_s, max_s, settings)
+    system, user = clip_prompt(sents, count, min_s, max_s, settings, brief)
     data = llm.complete_json(system, user, CLIP_SCHEMA, max_tokens=6000, temperature=0.3)  # judge, don't invent
     plans: list[ClipPlan] = []
     for c in data.get("clips") or []:
@@ -356,6 +359,106 @@ def face_crop_filter(settings: Settings, src_w: int, src_h: int, plan: list[tupl
     return f"crop={cw}:{ch}:x='{expr}':y=0,scale={W}:{H}:flags=lanczos,setsar=1"
 
 
+# ------------------------------------------------------------------------------------------ editing
+FILLERS = {"um", "umm", "uh", "uhh", "uhm", "erm", "er", "hmm", "mm", "mhm"}
+
+
+def _filler(word: Word) -> bool:
+    return re.sub(r"[^\w]", "", word.text.lower()) in FILLERS
+
+
+def keep_ranges(words: list[Word], dur: float, fps: int, *, max_pause: float = 0.6, pad: float = 0.15,
+                fillers: bool = True) -> list[tuple[float, float]]:
+    """Jump cuts: the parts of a clip to keep, as (start, end) seconds on frame boundaries. Pauses longer
+    than ``max_pause`` shrink to about 2 x ``pad`` and filler sounds ("um", "uh") are cut together with
+    the pauses around them. Cutting on frame boundaries lets the picture and the sound be cut at exactly
+    the same instants, so lips stay in sync however many cuts there are."""
+    if not words:
+        return [(0.0, dur)]
+    cuts: list[tuple[float, float]] = []
+    spoken = [w for w in words if not (fillers and _filler(w))]
+    if not spoken:
+        return [(0.0, dur)]
+    if spoken[0].start > 2 * pad:
+        cuts.append((0.0, spoken[0].start - pad))
+    for a, b in zip(spoken, spoken[1:]):
+        gap = b.start - a.end
+        has_filler = fillers and any(_filler(w) and a.end <= w.start < b.start for w in words)
+        if gap > max_pause or (has_filler and gap > 2 * pad):
+            cuts.append((a.end + pad, b.start - pad))
+    tail = min(dur, spoken[-1].end + 0.25)
+    if dur - tail > 1.0 / fps:
+        cuts.append((tail, dur))
+    if not cuts:
+        return [(0.0, dur)]
+
+    def snap(t: float) -> float:
+        return round(round(t * fps) / fps, 6)
+    end = round(int(dur * fps + 1e-6) / fps, 6)  # never past the last frame of the clip
+    keep, t = [], 0.0
+    for c0, c1 in sorted(cuts):
+        c0, c1 = snap(c0), min(snap(c1), end)
+        if c1 - c0 < 1.0 / fps or c0 < t:
+            continue
+        if c0 - t >= 2.0 / fps:
+            keep.append((t, c0))
+        t = c1
+    if end - t >= 2.0 / fps:
+        keep.append((t, end))
+    return keep or [(0.0, dur)]
+
+
+def retime(words: list[Word], keep: list[tuple[float, float]]) -> list[Word]:
+    """Word times after the jump cuts; words that fell in a cut (fillers) are dropped."""
+    out, removed, k = [], 0.0, 0
+    for w in words:
+        while k < len(keep) and w.start >= keep[k][1]:
+            k += 1
+        if k >= len(keep):
+            break
+        a, b = keep[k]
+        if w.start < a - 0.02:
+            continue
+        removed = a - sum(y - x for x, y in keep[:k])
+        out.append(Word(w.text, round(max(0.0, w.start - removed), 3), round(min(b, w.end) - removed, 3),
+                        w.speaker))
+    return out
+
+
+def select_expr(keep: list[tuple[float, float]], fps: int) -> str:
+    """An ffmpeg select/aselect expression true for frames in the kept parts. Half a frame of tolerance
+    so a frame that starts exactly on a boundary is decided the same way for picture and sound."""
+    h = 0.5 / fps
+    return "+".join(f"gte(t,{a - h:.4f})*lt(t,{b - h:.4f})" for a, b in keep)
+
+
+def zoom_plan(words: list[Word], dur: float, *, zoom: float = 1.12, min_seconds: float = 2.0) -> list[tuple[float, float]]:
+    """[(from time, zoom)]: the framing punches in and out at sentence starts, at most every
+    ``min_seconds``, the hard-cut zoom editors use to keep a talking head lively."""
+    plan, level, last = [(0.0, 1.0)], 1.0, 0.0
+    for prev, w in zip(words, words[1:]):
+        new_sentence = prev.text.rstrip()[-1:] in ".!?" or w.start - prev.end > 0.45
+        if new_sentence and w.start - last >= min_seconds and dur - w.start >= min_seconds:
+            level = zoom if level == 1.0 else 1.0
+            t = max(0.0, w.start - 0.05)
+            plan.append((round(t, 3), level))
+            last = t
+    return plan
+
+
+def zoom_filter(settings: Settings, plan: list[tuple[float, float]]) -> str:
+    """zoompan with a piecewise-constant zoom (no slow drift): each change is a clean cut. The zoom is
+    centred a little above the middle, where faces usually are."""
+    if len(plan) < 2:
+        return ""
+    expr = f"{plan[-1][1]:.3f}"
+    for i in range(len(plan) - 2, -1, -1):
+        expr = f"if(lt(it,{plan[i + 1][0]:.3f}),{plan[i][1]:.3f},{expr})"
+    W, H, F = settings.width, settings.height, settings.fps
+    return (f",zoompan=z='{expr}':x='iw/2-(iw/zoom/2)':y='(ih-ih/zoom)*0.4':d=1:s={W}x{H}:fps={F},"
+            f"setsar=1")
+
+
 # ------------------------------------------------------------------------------------------ rendering
 def crop_filter(settings: Settings, mode: str, face: str | None = None) -> str:
     W, H = settings.width, settings.height
@@ -388,15 +491,29 @@ def render_clip(settings: Settings, source: Path, plan: ClipPlan, words: list[Wo
             framing = plan_face_crop(samples, dur)
             face = face_crop_filter(s, *src_size, framing)
             log.info("Face framing: %s", f"{len(framing)} shot(s)" if face else "no face found, cropping the centre")
-    seg = work / "seg00.mp4"
-    ffmpeg.run(["-ss", f"{plan.start:.3f}", "-i", str(source), "-t", f"{dur:.3f}", "-an",
-                "-vf", f"{crop_filter(s, crop, face)},fps={F}", *_encode_args(s, final=False),
-                "-frames:v", str(max(2, round(dur * F))), str(seg)], label="clip video")
-    voice = work / "voice.wav"
-    ffmpeg.run(["-ss", f"{plan.start:.3f}", "-i", str(source), "-t", f"{dur:.3f}", "-vn", "-ac", "1",
-                "-ar", "48000", str(voice)], label="clip audio")
     clip_words = [Word(w.text.strip(), round(w.start - plan.start, 3), round(w.end - plan.start, 3))
                   for w in words if plan.start - 0.05 <= w.start < plan.end]
+    keep = keep_ranges(clip_words, dur, F, max_pause=s.clip_max_pause) if s.clip_jump_cuts else [(0.0, dur)]
+    cut = len(keep) > 1 or keep[0] != (0.0, dur)
+    picked, sound = "", ""
+    if cut:
+        expr = select_expr(keep, F)
+        picked = f",select='{expr}',setpts=N/({F}*TB)"
+        # audio frames exactly one video frame long, so both are kept or dropped together
+        sound = f"asetnsamples=n={round(48000 / F)}:p=0,aselect='{expr}',asetpts=N/SR/TB,"
+        clip_words = retime(clip_words, keep)
+        new_dur = round(sum(b - a for a, b in keep), 3)
+        log.info("Jump cuts: %d cut(s), %.1fs -> %.1fs", len(keep) - 1 + (keep[0][0] > 0), dur, new_dur)
+        dur = new_dur
+    zoom = zoom_filter(s, zoom_plan(clip_words, dur)) if s.clip_zoom and crop != "blur" else ""
+    seg = work / "seg00.mp4"
+    ffmpeg.run(["-ss", f"{plan.start:.3f}", "-i", str(source), "-t", f"{plan.duration + 0.25:.3f}", "-an",
+                "-vf", f"{crop_filter(s, crop, face)},fps={F}{picked}{zoom}", *_encode_args(s, final=False),
+                "-frames:v", str(max(2, round(dur * F))), str(seg)], label="clip video")
+    voice = work / "voice.wav"
+    ffmpeg.run(["-ss", f"{plan.start:.3f}", "-i", str(source), "-t", f"{plan.duration + 0.25:.3f}", "-vn",
+                "-af", f"aresample=48000,{sound}aformat=channel_layouts=mono", "-ar", "48000", str(voice)],
+               label="clip audio")
     chunks = caption_chunks(clip_words, s.caption_max_words, total=dur)
     overlay = build_overlays(s, chunks, dur, plan.hook_text, work)
     video = folder / ("short.mp4" if s.vertical else "video.mp4")
@@ -405,8 +522,9 @@ def render_clip(settings: Settings, source: Path, plan: ClipPlan, words: list[Wo
 
 
 def make_clips(studio, src: str, *, count: int = 3, crop: str = "center", upload: bool | None = None,
-               min_seconds: int = 20, max_seconds: int = 58) -> list:
-    """Returns one pipeline.Result per clip."""
+               min_seconds: int = 20, max_seconds: int = 58, brief: str = "") -> list:
+    """Returns one pipeline.Result per clip. ``brief``: what to look for ("the funniest moments", "every
+    tip about sleep"); without an LLM it is ignored."""
     from .history import now_iso
     from .pipeline import Result, final_description, final_title
 
@@ -435,7 +553,9 @@ def make_clips(studio, src: str, *, count: int = 3, crop: str = "center", upload
             log.warning("No LLM is configured, so the clips are evenly spaced moments instead of the best ones "
                         "(%s)", str(e).split(".")[0])
             llm = None
-        plans = pick_clips(llm, sents, s, count, min_seconds, min(max_seconds, 170))
+        if brief and llm is None:
+            log.warning("The clip brief needs an LLM to read the transcript; it is ignored")
+        plans = pick_clips(llm, sents, s, count, min_seconds, min(max_seconds, 170), brief)
         if not plans:
             raise RuntimeError("no usable moments found")
         log.info("Clipping %d moment(s) from %s", len(plans), src)
@@ -469,7 +589,7 @@ def make_clips(studio, src: str, *, count: int = 3, crop: str = "center", upload
                     duration=out["duration"], llm=meta["llm"], voice="original audio", status="rendered",
                     score=plan.score)
                 r = Result(True, title, folder, video, "rendered", seconds=time.time() - t0,
-                           record_id=rid, score=plan.score, language=s.language)
+                           record_id=rid, score=plan.score, language=s.language, reason=plan.reason)
                 log.info("Clip %d: %s (%.0fs from %s)", n, title, dur, _ts(plan.start))
                 if upload:
                     studio.upload_record(rid, r)

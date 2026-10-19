@@ -46,6 +46,14 @@ TOOLS: list[dict] = [
                                                      "exactly, instead of writing a new one."},
          "also_languages": {"type": "array", "items": {"type": "string"},
                             "description": "Also make translated copies, e.g. [\"es\", \"hi\"]."},
+         "background_video": {"type": "string",
+                              "description": "Path of a video (or a folder of videos) to play under the whole "
+                                             "story, e.g. gameplay. Only videos the user may reuse."},
+         "layout": {"type": "string", "enum": ["full", "split"],
+                    "description": "With background_video: full = it is the picture; split = footage on top, "
+                                   "the background video below."},
+         "sound_effects": {"type": "boolean", "description": "Whooshes, pops and hits. Default true."},
+         "emoji": {"type": "boolean", "description": "An emoji per scene above the captions. Default true."},
          "upload": {"type": "boolean", "description": "Upload to YouTube when done. Default false."},
          "demo": {"type": "boolean", "description": "No-key demo: sample script and generated backgrounds."}}}},
     {"name": "draft_script",
@@ -61,6 +69,10 @@ TOOLS: list[dict] = [
          "source": {"type": "string"}, "count": {"type": "integer", "minimum": 1, "maximum": 10},
          "crop": {"type": "string", "enum": ["center", "blur", "face"],
                   "description": "face = keep the speaker's face in frame (needs OpenCV)"},
+         "prompt": {"type": "string",
+                    "description": "What to look for, e.g. 'the funniest moments' or 'every tip about sleep'."},
+         "jump_cuts": {"type": "boolean", "description": "Cut long pauses and 'um'/'uh'. Default true."},
+         "zoom": {"type": "boolean", "description": "Punch-in zoom between sentences. Default true."},
          "upload": {"type": "boolean"}}}},
     {"name": "plan_ideas",
      "description": "Brainstorm specific video ideas and add them to the idea queue that the autopilot uses first.",
@@ -87,6 +99,14 @@ class Server:
             target_seconds=max(10, min(170, int(a["duration_seconds"]))) if a.get("duration_seconds") else None)
         if a.get("aspect") and aspect_resolution(a["aspect"]):
             s = replace(s, resolution=aspect_resolution(a["aspect"]))
+        if a.get("background_video"):
+            s = replace(s, background_video=str(a["background_video"]))
+        if a.get("layout") in ("full", "split"):
+            s = replace(s, background_layout=a["layout"])
+        for key, field_name in (("sound_effects", "sound_effects"), ("emoji", "caption_emoji"),
+                                ("jump_cuts", "clip_jump_cuts"), ("zoom", "clip_zoom")):
+            if isinstance(a.get(key), bool):
+                s = replace(s, **{field_name: a[key]})
         if a.get("demo"):
             s = replace(s, offline=True, upload=False)
         return s
@@ -113,8 +133,9 @@ class Server:
     def clip_video(self, a: dict) -> str:
         from .clipper import make_clips
         from .pipeline import Studio
-        results = make_clips(Studio(self.settings), a["source"], count=int(a.get("count") or 3),
-                             crop=a.get("crop") or "center", upload=bool(a.get("upload")))
+        results = make_clips(Studio(self._settings(a)), a["source"], count=int(a.get("count") or 3),
+                             crop=a.get("crop") or "center", upload=bool(a.get("upload")),
+                             brief=str(a.get("prompt") or ""))
         return "\n\n".join(_describe(r) for r in results) or "No clips were made."
 
     def plan_ideas(self, a: dict) -> str:
@@ -209,7 +230,8 @@ def _describe(r) -> str:
     if r.video:
         parts.append(f"  file: {r.video}")
     if r.score is not None:
-        parts.append(f"  retention score: {r.score}/100")
+        reason = getattr(r, "reason", "")
+        parts.append(f"  {'virality' if reason else 'retention'} score: {r.score}/100" + (f" ({reason})" if reason else ""))
     if r.youtube_id:
         parts.append(f"  https://youtube.com/shorts/{r.youtube_id}")
     return "\n".join(parts)

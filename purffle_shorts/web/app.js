@@ -123,7 +123,8 @@ async function boot() {
     aspect: ["9:16", "16:9", "1:1", "4:5"].includes(i.aspect) ? i.aspect : "9:16", caption_style: i.caption_style,
     caption_position: i.caption_position, grade: i.grade, transition: i.transition, review: i.review, tts: i.tts,
     voice: "", voice_b: "", provider: "", model: "", also_langs: (i.also_languages || []).join(", "), music: true,
-    upload: false, offline: !i.llm_ok, visuals: i.visuals,
+    upload: false, offline: !i.llm_ok, visuals: i.visuals, background: "", layout: "full", sfx: true, emphasis: true,
+    emoji: true,
   }, S.form);
   if (!i.llm_ok) S.form.offline = true;
   status();
@@ -242,7 +243,8 @@ function payload(extra = {}) {
     caption_style: f.caption_style, caption_position: f.caption_position, grade: f.grade, transition: f.transition,
     tts: f.tts, voice: f.voice, voice_b: f.voice_b, provider: f.provider, model: f.model, review: f.review,
     also_langs: f.also_langs, music: f.music, upload: f.upload && S.info.upload && !f.offline, offline: f.offline,
-    visuals: f.visuals,
+    visuals: f.visuals, background: f.background || "", layout: f.layout, sfx: f.sfx !== false,
+    emphasis: f.emphasis !== false, emoji: f.emoji !== false,
   };
   if (f.mode === "topic") p.topic = f.topic.trim();
   if (f.mode === "url") p.url = f.url.trim();
@@ -332,7 +334,18 @@ function drawForm() {
       <div class="field"><label>Transitions</label>${sel("transition", o.transitions.map(t => [t, t]), f.transition)}</div>
     </div>
     <div class="field"><label>Footage & images</label><div class="checks-inline">${o.visuals.map(v => `<label><input type="checkbox" data-visual="${v}"${(f.visuals || []).includes(v) ? " checked" : ""}>${{ pexels: "Pexels", pixabay: "Pixabay", local: "My media folder", pollinations: "AI images (Pollinations, key advised)", "openai-images": "OpenAI images" }[v] || v}</label>`).join("")}</div></div>
-    <div class="field"><label class="switch"><input type="checkbox" data-f="music"${f.music ? " checked" : ""}><span>Background music<small>From your music folder, ducked under the voice</small></span></label></div>
+    <div class="field"><label>Background video</label>${(o.backgrounds || []).length
+      ? sel("background", [["", "None: footage for every scene"], ...o.backgrounds.map(b => [b.path, b.name])], f.background)
+      : `<p class="hint">Put gameplay or other videos you may reuse in <span class="mono">media/backgrounds/</span> (or set BACKGROUND_VIDEO) to play one under stories.</p>`}</div>
+    ${f.background ? `<div class="field"><label>Layout</label>${seg("layout", [["full", "Full screen"], ["split", "Split: footage on top"]], f.layout)}</div>` : ""}
+    <div class="grid2">
+      <label class="switch"><input type="checkbox" data-f="music"${f.music ? " checked" : ""}><span>Background music<small>From your music folder, ducked under the voice</small></span></label>
+      <label class="switch"><input type="checkbox" data-f="sfx"${f.sfx !== false ? " checked" : ""}><span>Sound effects<small>Whoosh on scene changes, pop per message</small></span></label>
+    </div>
+    <div class="grid2">
+      <label class="switch"><input type="checkbox" data-f="emphasis"${f.emphasis !== false ? " checked" : ""}><span>Highlight key words<small>Numbers and the words that matter, in colour</small></span></label>
+      <label class="switch"><input type="checkbox" data-f="emoji"${f.emoji !== false ? " checked" : ""}><span>Emoji<small>One per scene pops up above the captions</small></span></label>
+    </div>
   </section>
 
   <section class="card">
@@ -384,6 +397,7 @@ function bindForm() {
       S.form[el.dataset.f] = el.type === "checkbox" ? el.checked : el.type === "range" ? +el.value : el.value;
       if (el.dataset.f === "duration") $("#dur-out").textContent = el.value + "s";
       if (el.dataset.f === "language" || el.dataset.f === "tts") loadVoices();
+      if (el.dataset.f === "background") { saveForm(); return drawForm(); }
     }
     saveForm();
   });
@@ -684,7 +698,7 @@ function drawJobs() {
       </div>
       ${j.status !== "cancelled" ? `<div class="pbar"><i data-w="${j.status === "failed" ? 100 : j.pct}"></i></div>` : ""}
       ${r.error ? `<div class="err">${esc(r.error)}</div>` : ""}
-      ${r.clips ? `<div class="chips">${r.clips.map(c => `<span class="chip ${c.ok ? "ok" : "bad"}"${c.id ? ` data-open="${c.id}"` : ""}>${esc(c.title || "clip")}</span>`).join("")}</div>` : ""}
+      ${r.clips ? `<div class="chips">${r.clips.map(c => `<span class="chip ${c.ok ? "ok" : "bad"}"${c.id ? ` data-open="${c.id}"` : ""}${c.reason ? ` title="${esc(c.reason)}"` : ""}>${esc(shortTitle(c.title) || "clip")}${c.score != null ? ` · <b>${c.score}</b>` : ""}</span>`).join("")}</div>` : ""}
       ${open ? `<pre class="log" data-id="${j.id}">${esc(j.log.join("\n")) || "…"}</pre>` : ""}
     </div>`;
   }).join("");
@@ -756,7 +770,8 @@ async function refreshInfo() { try { S.info = await get("/api/info"); status(); 
 
 // ------------------------------------------------------------------ CLIP
 function viewClip() {
-  const c = store.get("clip", { source: "", count: 3, crop: "center", upload: false });
+  const c = Object.assign({ source: "", count: 3, crop: "center", upload: false, brief: "", jump_cuts: true, zoom: true },
+    store.get("clip", {}));
   $("#main").innerHTML = `
   <div class="page-head"><div><h1>Clip a long video</h1><p>Turn a podcast, interview, talk or stream into Shorts of its best moments.</p></div></div>
   <div class="create">
@@ -766,26 +781,34 @@ function viewClip() {
         <div class="field"><label>Clips</label><div class="range-row"><input type="range" id="c-n" min="1" max="10" value="${c.count}"><output id="c-out">${c.count}</output></div></div>
         <div class="field"><label>Framing</label>${seg("crop", [["center", "Fill (crop)"], ["face", "Follow face"], ["blur", "Fit + blur"]], c.crop)}</div>
       </div>
+      <div class="field"><label>What to look for <span class="muted">(optional)</span></label><input type="text" id="c-brief" value="${esc(c.brief)}" placeholder="e.g. the funniest moments, or every tip about sleep"><p class="hint">The AI only picks moments that fit. Needs an AI model.</p></div>
+      <div class="grid2">
+        <label class="switch"><input type="checkbox" id="c-cuts"${c.jump_cuts ? " checked" : ""}><span>Cut pauses and ums<small>Tighter pacing, lips stay in sync</small></span></label>
+        <label class="switch"><input type="checkbox" id="c-zoom"${c.zoom ? " checked" : ""}><span>Punch-in zoom<small>Changes framing between sentences</small></span></label>
+      </div>
       <div class="field"><label class="switch"><input type="checkbox" id="c-up"${c.upload ? " checked" : ""}${S.info.upload ? "" : " disabled"}><span>Upload the clips when done</span></label></div>
       <div class="actions end"><button class="btn primary" id="c-go" type="button">${I.scissors}Find the best moments</button></div>
     </section>
     <section class="card"><h2>How it works</h2><div class="list">
       <div class="item"><span class="chip accent">1</span><div class="grow"><b>Transcribe</b><small>Word-level timing with faster-whisper (free, local) or OpenAI.</small></div></div>
-      <div class="item"><span class="chip accent">2</span><div class="grow"><b>AI picks the moments</b><small>Self-contained, 20–58 s, a hook in the first line and a payoff at the end. Each gets a title and a retention score.</small></div></div>
-      <div class="item"><span class="chip accent">3</span><div class="grow"><b>Vertical, captioned, loud enough</b><small>9:16 crop or blurred fit, word-by-word captions, hook title, loudness to −14 LUFS.</small></div></div>
+      <div class="item"><span class="chip accent">2</span><div class="grow"><b>AI picks the moments</b><small>Self-contained, 20–58 s, a hook in the first line and a payoff at the end. Each gets a title and a virality score with the reason.</small></div></div>
+      <div class="item"><span class="chip accent">3</span><div class="grow"><b>Edited, vertical, captioned</b><small>Pauses and ums cut, punch-in zoom, face-following or blurred-fit 9:16, word-by-word captions, loudness to −14 LUFS.</small></div></div>
     </div></section>
   </div>`;
   const save = () => store.set("clip", c);
   $("#c-n").oninput = e => { c.count = +e.target.value; $("#c-out").textContent = c.count; save(); };
   $("#c-src").oninput = e => { c.source = e.target.value; save(); };
   $("#c-up").onchange = e => { c.upload = e.target.checked; save(); };
+  $("#c-brief").oninput = e => { c.brief = e.target.value; save(); };
+  $("#c-cuts").onchange = e => { c.jump_cuts = e.target.checked; save(); };
+  $("#c-zoom").onchange = e => { c.zoom = e.target.checked; save(); };
   $("#main").addEventListener("click", e => {
     const b = e.target.closest("[data-seg=crop]");
     if (b) { c.crop = b.dataset.v; $$("[data-seg=crop]").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.v === c.crop))); save(); }
   });
   $("#c-go").onclick = async () => {
     if (!c.source.trim()) return toast("Give a video file path or URL.", "bad");
-    try { await post("/api/clip", { source: c.source.trim(), count: c.count, crop: c.crop, upload: c.upload }); toast("Clipping… follow it in Queue.", "info"); tick(); }
+    try { await post("/api/clip", { source: c.source.trim(), count: c.count, crop: c.crop, upload: c.upload, brief: c.brief.trim(), jump_cuts: c.jump_cuts, zoom: c.zoom }); toast("Clipping… follow it in Queue.", "info"); tick(); }
     catch (e) { toast(esc(e.message), "bad"); }
   };
 }

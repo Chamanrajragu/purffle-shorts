@@ -121,3 +121,70 @@ Each item shipped with tests. [x] = done.
 Not measured here (no keys in this environment): stock-footage relevance on real Pexels/Pixabay results, and
 OpenAI/Gemini strict-schema replies. Both are covered by unit tests with recorded API shapes and fall back to
 the old behaviour when a provider refuses.
+
+---
+
+# Round 2 (20 Oct 2026): retention editing, story backgrounds, clip editing, reach
+
+The repository passed 35 stars and 10 forks with no open issues, so this round goes by what people search
+for and what competing tools advertise. A research pass covered MoneyPrinterTurbo, ShortGPT,
+RedditVideoMakerBot, AI-Youtube-Shorts-Generator, OpenShorts and short-video-maker (READMEs, releases, issues
+sorted by reactions), plus the commercial tools (Opus Clip, Submagic, Captions.ai, Revid, Faceless.video).
+It also checked Google and YouTube autocomplete and where this repository ranks in GitHub search.
+
+## What we found
+- **Retention editing is now table stakes:** Submagic, Captions.ai and Opus Clip all lead with keyword
+  emphasis in captions, auto zoom, silence and filler removal, and sound effects. We had none of the four.
+- **Story formats need backgrounds:** the most-copied Reddit/chat-story look is a continuous gameplay or
+  "satisfying" video under the story, often split-screen. RedditVideoMakerBot ships a background library.
+  We only had per-scene picks from `media/`.
+- **Clipping:** prompt-steered clipping ("find the funny bits about X") is a headline Opus feature and is
+  easy with our transcript-reading picker. The per-clip score exists but is not shown as a "virality score"
+  with reasons.
+- **Reach:**
+  - `pip install purffle-shorts` returns 404, because the 3.0.0 PyPI publish failed: no trusted publisher
+    is configured on PyPI.
+  - There is no Colab notebook, which competitors have.
+  - The Studio's REST API is undocumented, while n8n-style automation is a common search.
+  - The repository description lacks plain-word phrases that GitHub search matches ("Opus Clip
+    alternative", "YouTube automation"), and there is no custom social preview.
+- **Bug found:** none new. Tag lengths, title limits and upload retries were already handled.
+
+## Plan
+### F. Retention editing
+- [ ] F1 Sound effects synthesised in code (no files to license): whoosh on scene changes, pop per text
+      message, low hit under the hook. Placed 11 dB under the measured voice whichever TTS engine spoke
+      (`SOUND_EFFECTS`, `SFX_VOLUME`).
+- [ ] F2 Keyword emphasis: the LLM marks 1–2 key words per scene (strict schema), and numbers are always
+      emphasised. Drawn in a per-style colour by both the Pillow and libass renderers (`CAPTION_EMPHASIS`).
+- [ ] F3 Background video for stories (`BACKGROUND_VIDEO` file/folder/URL, `--background`): one continuous
+      random stretch, either as the picture (`full`) or under the footage (`split`, footage searched in
+      the top half's shape).
+
+### G. Clip editing
+- [ ] G1 Jump cuts: pauses over `CLIP_MAX_PAUSE` shortened and "um/uh" cut. Cuts land on frame
+      boundaries and audio is split into frame-sized packets, so picture and sound are cut at the same
+      instants (no drift).
+- [ ] G2 Punch-in zoom between sentences (piecewise-constant zoompan, `CLIP_ZOOM`).
+- [ ] G3 `clip --prompt "…"` steers which moments are picked.
+- [ ] G4 Virality score with reasons shown for clips in CLI and Studio.
+
+### H. Reach and SEO
+- [ ] H1 YouTube autocomplete as a topic source (`TOPIC_SOURCES=search`) and as real search phrases handed
+      to the script writer for titles and tags (`SEO_KEYWORDS`).
+- [ ] H2 Localised YouTube titles and descriptions (`LOCALIZE_METADATA=es,pt,hi`), so viewers in other
+      languages see them in their own language.
+- [ ] H3 Optional caption-track upload (`UPLOAD_CAPTIONS`), with a graceful skip when the token lacks the
+      scope.
+- [ ] H4 Colab notebook, documented REST API with an n8n example, docker-compose.
+- [ ] H5 README rewritten around search phrases, with headings people search for.
+
+### I. QA
+- [ ] Unit tests for every item, then full CLI, Studio (browser), MCP and offline end-to-end renders of
+      every format, layout and clip option. A real local-LLM run where time allows.
+
+Not doing this round:
+- **TikTok and Instagram posting.** TikTok's API posts private-only until an app audit, Instagram needs
+  a public video URL, and the alternative is a paid relay. None of these can be tested here.
+- **Voice cloning.** Its dependencies are heavy and GPU-bound.
+- **AI video generation.** It needs paid APIs.

@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
-from . import ffmpeg
+from . import ffmpeg, sfx
 from .config import Settings
 from .media import MediaItem
 from .overlays import OverlayPlan
@@ -66,10 +66,12 @@ def prepare_segment(item: MediaItem, seconds: float, idx: int, settings: Setting
     enc = _encode_args(settings, final=False)
 
     if item.kind == "video" and item.path:
-        src = ffmpeg.duration(item.path)
+        src = item.duration or ffmpeg.duration(item.path)
         pre: list[str] = []
         if src <= seconds + 0.1:
             pre = ["-stream_loop", "-1"]
+        elif item.extra.get("start") is not None:  # a chosen stretch (background video)
+            pre = ["-ss", f"{float(item.extra['start']):.2f}"]
         else:
             # Skip the first moments (often a fade-in) and pick a random window for variety.
             max_start = src - seconds
@@ -148,28 +150,73 @@ def _voice_filters(settings: Settings) -> str:
     return "," + ",".join(chain) if chain else ""
 
 
-def mix_audio(settings: Settings, voice: Path, total: float, music: Path | None, work: Path) -> Path:
+SFX_BELOW_VOICE = 11.0  # dB: effects are heard but never compete with the words
+
+
+def _fx_gain(settings: Settings, voice: Path, effects: Path) -> float:
+    """Linear gain that puts the effects SFX_BELOW_VOICE dB under this voice (measured after the voice
+    clean-up), so they sit the same way whichever TTS engine spoke, times SFX_VOLUME."""
+    v = _measure(voice, _voice_filters(settings).lstrip(","))
+    fx = _measure(effects, "")
+    if v is None or fx is None:
+        return 0.25 * settings.sfx_volume
+    db = max(-30.0, min(12.0, v - SFX_BELOW_VOICE - fx))
+    return settings.sfx_volume * 10 ** (db / 20)
+
+
+def _measure(path: Path, filters: str) -> float | None:
+    chain = f"{filters}," if filters else ""
+    try:
+        err = ffmpeg.run(["-i", str(Path(path).resolve()), "-vn", "-af",
+                          f"aformat=channel_layouts=stereo,{chain}loudnorm=print_format=json", "-f", "null", "-"],
+                         label="measure loudness", loglevel="info")
+    except ffmpeg.FFmpegError:
+        return None
+    try:
+        value = float((ffmpeg.loudnorm_report(err) or {}).get("input_i", "nan"))
+    except ValueError:
+        return None
+    return value if value > -70 else None
+
+
+def mix_audio(settings: Settings, voice: Path, total: float, music: Path | None, work: Path,
+              effects: Path | None = None) -> Path:
     """The finished soundtrack, exactly ``total`` seconds long: the cleaned-up voice with the music ducked under
-    it, normalised to LOUDNESS_LUFS in two passes. The first pass measures the mix; the second applies one
-    constant gain (loudnorm's linear mode), which hits the target within a fraction of a LU and never pumps
-    the way single-pass normalisation does."""
+    it and the sound effects (sfx.track) on top, normalised to LOUDNESS_LUFS in two passes. The first pass
+    measures the mix; the second applies one constant gain (loudnorm's linear mode), which hits the target
+    within a fraction of a LU and never pumps the way single-pass normalisation does."""
     mix = work / "mix.wav"
     graph = [f"[0:a]aresample=48000,aformat=channel_layouts=stereo{_voice_filters(settings)},"
              f"apad=whole_dur={total:.3f},atrim=0:{total:.3f}[v0]"]
     inputs = ["-i", str(Path(voice).resolve())]
+    beds: list[str] = []  # everything mixed under the voice
+    k = 1                 # next input index
     if music:
         inputs += ["-stream_loop", "-1", "-i", str(Path(music).resolve())]
         fade_out = max(0.0, total - 1.5)
-        graph.append(f"[1:a]aresample=48000,aformat=channel_layouts=stereo,volume={settings.music_volume:.3f},"
+        graph.append(f"[{k}:a]aresample=48000,aformat=channel_layouts=stereo,volume={settings.music_volume:.3f},"
                      f"afade=t=in:d=0.8,afade=t=out:st={fade_out:.3f}:d=1.5,atrim=0:{total:.3f}[mus]")
+        k += 1
         if settings.music_ducking:  # music dips automatically whenever the voice speaks
             graph.append("[v0]asplit=2[voice][sc]")
             graph.append("[mus][sc]sidechaincompress=threshold=0.015:ratio=8:attack=15:release=350:makeup=1[duck]")
-            graph.append("[voice][duck]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mix]")
+            beds.append("duck")
         else:
-            graph.append("[v0][mus]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mix]")
+            graph.append("[v0]anull[voice]")
+            beds.append("mus")
     else:
-        graph.append("[v0]anull[mix]")
+        graph.append("[v0]anull[voice]")
+    if effects:
+        inputs += ["-i", str(Path(effects).resolve())]
+        gain = _fx_gain(settings, voice, effects)
+        graph.append(f"[{k}:a]aresample=48000,aformat=channel_layouts=stereo,volume={gain:.4f},"
+                     f"apad=whole_dur={total:.3f},atrim=0:{total:.3f}[fx]")
+        beds.append("fx")
+    if beds:
+        graph.append("[voice]" + "".join(f"[{b}]" for b in beds)
+                     + f"amix=inputs={1 + len(beds)}:duration=first:dropout_transition=0:normalize=0[mix]")
+    else:
+        graph.append("[voice]anull[mix]")
     target = f"I={settings.loudness_lufs}:TP=-1.5:LRA=11"
     graph.append(f"[mix]asplit=2[keep][probe];[probe]loudnorm={target}:print_format=json[m]")
     err = ffmpeg.run([*inputs, "-filter_complex", ";".join(graph), "-map", "[keep]", "-c:a", "pcm_s16le",
@@ -192,7 +239,10 @@ def mix_audio(settings: Settings, voice: Path, total: float, music: Path | None,
 
 def compose(settings: Settings, segments: list[Path], lengths: list[float], voice: Path, total: float,
             plan: OverlayPlan, out: Path, work: Path, music: Path | None, joins: list[bool] | None = None,
-            progress: Callable[[float], None] | None = None) -> Path:
+            progress: Callable[[float], None] | None = None, effects: Path | None = None,
+            background: Path | None = None) -> Path:
+    """``background``: a segment as long as the video, stacked under the footage (split layout); the
+    segments are then the top part of the frame."""
     W, H, F = settings.width, settings.height, settings.fps
     T = settings.transition_seconds if settings.transition != "none" and len(segments) > 1 else 0.0
     # ffmpeg runs inside `work` (so the libass paths stay simple): every input must be absolute.
@@ -202,8 +252,12 @@ def compose(settings: Settings, segments: list[Path], lengths: list[float], voic
     n = len(segments)
     idx = n
     audio_i = idx
-    inputs += ["-i", str(mix_audio(settings, voice, total, music, work).resolve())]
+    inputs += ["-i", str(mix_audio(settings, voice, total, music, work, effects).resolve())]
     idx += 1
+    bg_i = None
+    if background:
+        inputs += ["-i", str(Path(background).resolve())]
+        bg_i, idx = idx, idx + 1
 
     f: list[str] = []
     for i in range(n):
@@ -236,6 +290,10 @@ def compose(settings: Settings, segments: list[Path], lengths: list[float], voic
     else:
         f.append("".join(f"[{lab}]" for lab in labels) + f"concat=n={len(labels)}:v=1:a=0[cat]")
         last = "cat"
+    if bg_i is not None:
+        f.append(f"[{bg_i}:v]settb=AVTB,setpts=PTS-STARTPTS,fps={F},format=yuv420p[bg]")
+        f.append(f"[{last}][bg]vstack=inputs=2,setsar=1[split]")
+        last = "split"
 
     def overlay(src_label: str, expr: str, name: str):
         # Blend in the output's own pixel format: with format=auto ffmpeg converts every full frame to another
@@ -290,6 +348,12 @@ def compose(settings: Settings, segments: list[Path], lengths: list[float], voic
                      f"setpts=PTS+{plan.cta_from:.3f}/TB[cta]")
             overlay("cta", f"x=(W-w)/2:y={y}:eof_action=repeat", "vcta")
             idx += 1
+    if plan.emoji:
+        playlist, ex, ey = plan.emoji
+        inputs += ["-f", "concat", "-safe", "0", "-i", str(playlist.resolve())]
+        f.append(f"[{idx}:v]format=yuva420p[emo]")
+        overlay("emo", f"x={ex}:y={ey}", "vemo")
+        idx += 1
     if settings.progress_bar:
         bar_h = max(6, H // 200 // 2 * 2)
         f.append(f"color=c=0xFFE11A@0.9:s={W}x{bar_h}:r={F}:d={total:.3f},format=yuva420p[bar]")
@@ -322,22 +386,46 @@ SEGMENT_SHARE = 0.3
 
 def render_video(settings: Settings, media: list[MediaItem], scene_durations: list[float], voice: Path,
                  total: float, plan: OverlayPlan, out: Path, work: Path, joins: list[bool] | None = None,
-                 progress: Callable[[float], None] | None = None) -> Path:
-    """``progress`` gets the fraction of the render that is done (0..1), several times a second."""
+                 progress: Callable[[float], None] | None = None,
+                 effects: list[tuple[float, str]] | None = None, background: MediaItem | None = None) -> Path:
+    """``progress`` gets the fraction of the render that is done (0..1), several times a second.
+    ``effects`` are (time, sound) pairs for the sound-effects track (see sfx.events_for). ``background``
+    (split layout): the footage fills the top half and this video plays under it for the whole Short."""
     T = settings.transition_seconds if settings.transition != "none" else 0.0
     lengths = segment_lengths(scene_durations, T, joins)
     report = progress or (lambda frac: None)
+    top = settings
+    if background is not None:
+        top = replace(settings, resolution=split_sizes(settings)[0])
     workers = max(1, min(8, max(2, (os.cpu_count() or 4) // 3), len(media)))  # each ffmpeg is multithreaded
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-        futs = [ex.submit(prepare_segment, m, L, i, settings, work) for i, (m, L) in enumerate(zip(media, lengths))]
+        futs = [ex.submit(prepare_segment, m, L, i, top, work) for i, (m, L) in enumerate(zip(media, lengths))]
+        bg_fut = None
+        if background is not None:
+            bottom = replace(settings, resolution=split_sizes(settings)[1])
+            bg_fut = ex.submit(prepare_segment, background, total, 99, bottom, work)
         for done, _ in enumerate(concurrent.futures.as_completed(futs), 1):
             report(SEGMENT_SHARE * done / len(futs))
         segments = [fu.result() for fu in futs]
+        bg_seg = bg_fut.result() if bg_fut else None
     music = pick_music(settings)
     if music:
         log.info("Music: %s", music.name)
+    fx = None
+    if effects and settings.sound_effects and settings.sfx_volume > 0:
+        fx = sfx.track(effects, total, work / "effects.wav")
+        if fx:
+            log.info("Sound effects: %d", len(effects))
     return compose(settings, segments, lengths, voice, total, plan, out, work, music, joins,
-                   progress=lambda frac: report(SEGMENT_SHARE + (1 - SEGMENT_SHARE) * frac))
+                   progress=lambda frac: report(SEGMENT_SHARE + (1 - SEGMENT_SHARE) * frac), effects=fx,
+                   background=bg_seg)
+
+
+def split_sizes(settings: Settings) -> tuple[tuple[int, int], tuple[int, int]]:
+    """(top, bottom) frame sizes of the split layout: footage above, background video below."""
+    W, H = settings.resolution
+    top = H // 2 // 2 * 2
+    return (W, top), (W, H - top)
 
 
 def frame_quality(img) -> float:

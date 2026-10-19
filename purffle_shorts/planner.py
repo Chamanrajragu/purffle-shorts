@@ -38,7 +38,8 @@ IDEAS_SCHEMA = {
 }
 
 
-def plan_prompt(settings: Settings, count: int, niches: list[str], avoid: list[str], insights: str = "") -> tuple[str, str]:
+def plan_prompt(settings: Settings, count: int, niches: list[str], avoid: list[str], insights: str = "",
+                searches: list[str] | None = None) -> tuple[str, str]:
     lang = LANGUAGES.get(settings.language, settings.language)
     formats = ", ".join(f"{k} ({v.split(':')[0].split('.')[0].lower()})" for k, v in STYLES.items())
     system = ("You are the content strategist of a fast-growing faceless YouTube Shorts channel. You reply with "
@@ -46,6 +47,10 @@ def plan_prompt(settings: Settings, count: int, niches: list[str], avoid: list[s
     avoid_block = ("Already made or planned (never repeat these or near-duplicates):\n"
                    + "\n".join(f"- {a}" for a in avoid[:80]) + "\n\n") if avoid else ""
     ins = f"{insights}\n\n" if insights else ""
+    if searches:
+        ins += ("Questions and searches people really type into YouTube about these niches (most searched "
+                "first). Prefer ideas that answer one of them, using its words in the subject:\n"
+                + "\n".join(f"- {q}" for q in searches[:30]) + "\n\n")
     user = f"""Plan {count} YouTube Shorts for a channel about: {"; ".join(niches)}.
 Audience: {settings.audience}. Language of the videos: {lang} (write subject and angle in English).
 
@@ -62,7 +67,15 @@ def plan_ideas(llm, settings: Settings, history: History, count: int = 10, niche
     count = max(1, min(50, count))
     niches = niches or random.sample(settings.niches, min(3, len(settings.niches))) or ["interesting facts"]
     avoid = history.recent_titles(60) + [i["subject"] for i in history.ideas("pending")]
-    system, user = plan_prompt(settings, count, niches, avoid, insights)
+    searches: list[str] = []
+    if settings.seo_keywords and not settings.offline:
+        from . import seo
+        for niche in niches:
+            searches += [q for q in seo.search_phrases(niche, settings.language, settings.trends_geo, limit=10)
+                         if q not in searches]
+        if searches:
+            log.info("Planning with %d real YouTube searches", len(searches))
+    system, user = plan_prompt(settings, count, niches, avoid, insights, searches)
     data = llm.complete_json(system, user, IDEAS_SCHEMA, max_tokens=6000)
     seen = {a.lower() for a in avoid}
     saved = []
