@@ -6,7 +6,9 @@ import argparse
 import logging
 import logging.handlers
 import os
+import shutil
 import sys
+import threading
 from pathlib import Path
 
 from . import __version__
@@ -15,12 +17,85 @@ from .config import ASPECTS, ConfigError, Settings, aspect_resolution, load_env,
 log = logging.getLogger("purffle")
 
 
+STAGE_NAMES = {"topic": "Topic", "script": "Script", "review": "Review", "voice": "Voice", "footage": "Footage",
+               "captions": "Captions", "render": "Render", "check": "Check", "upload": "Upload",
+               "translate": "Translate", "done": "Done"}
+
+
+class LiveLine:
+    """One status line kept under the log on a terminal: stage, a bar, the percentage and the time left."""
+
+    def __init__(self, stream):
+        self.stream, self.text, self.eta_fn = stream, "", None
+        self.lock = threading.Lock()
+
+    def __call__(self, stage: str, pct: int, message: str) -> None:
+        eta = self.eta_fn() if self.eta_fn else None
+        filled = max(0, min(20, pct // 5))
+        text = f"  {STAGE_NAMES.get(stage, stage):<9} {'█' * filled}{'░' * (20 - filled)} {pct:3d}%"
+        if eta:
+            text += f" · {int(eta // 60)}:{int(eta % 60):02d} left"
+        if message:
+            text += f" · {message}"
+        width = shutil.get_terminal_size((100, 20)).columns - 1
+        with self.lock:
+            self.text = text[:width]
+            self._draw()
+
+    def _draw(self) -> None:
+        self.stream.write("\r\033[K" + self.text)
+        self.stream.flush()
+
+    def clear(self) -> None:
+        with self.lock:
+            if self.text:
+                self.stream.write("\r\033[K")
+
+    def redraw(self) -> None:
+        with self.lock:
+            if self.text:
+                self._draw()
+
+    def close(self) -> None:
+        self.clear()
+        self.text = ""
+
+
+class _Console(logging.StreamHandler):
+    live: LiveLine | None = None
+
+    def emit(self, record: logging.LogRecord) -> None:
+        live = _Console.live
+        if live:
+            live.clear()
+        super().emit(record)
+        if live:
+            live.redraw()
+
+
+def live_line(args) -> LiveLine | None:
+    """A live progress line, but only on a real terminal (not when piped, logged or verbose)."""
+    if getattr(args, "verbose", False) or not sys.stdout.isatty() or os.getenv("TERM") == "dumb":
+        return None
+    if sys.platform.startswith("win") and not (os.getenv("WT_SESSION") or os.getenv("TERM")):
+        return None  # the classic Windows console prints the line-clearing escape codes literally
+    line = LiveLine(sys.stdout)
+    _Console.live = line
+    return line
+
+
+def end_live(line: LiveLine | None) -> None:
+    if line:
+        line.close()
+    _Console.live = None
+
+
 def setup_logging(settings: Settings, verbose: bool = False, stream=None) -> None:
     root = logging.getLogger()
     if root.handlers:
         return
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S")
-    console = logging.StreamHandler(stream or sys.stdout)
+    console = _Console(stream or sys.stdout)
     console.setFormatter(fmt)
     if hasattr(sys.stdout, "reconfigure"):
         try:
@@ -114,20 +189,36 @@ def cmd_run(args, s: Settings) -> int:
         s.workers = args.workers
     if args.delay is not None:
         s.batch_delay = args.delay
-    produced = Studio(s).autopilot(count=args.count, once=args.once, topic=args.topic, source=args.source)
+    line = live_line(args) if s.workers == 1 else None  # parallel videos would fight over one line
+    try:
+        studio = Studio(s, progress=line)
+        if line:
+            line.eta_fn = studio.eta
+        produced = studio.autopilot(count=args.count, once=args.once, topic=args.topic, source=args.source)
+    finally:
+        end_live(line)
     return 0 if produced or not (args.count or args.once) else 1
 
 
 def cmd_make(args, s: Settings) -> int:
     from .pipeline import Studio
-    studio = Studio(s)
+    line = live_line(args)
+    studio = Studio(s, progress=line)
+    if line:
+        line.eta_fn = studio.eta
     ok = 0
-    for _ in range(max(1, args.count or 1)):
-        r = studio.make(args.topic, source=args.source, script_file=args.script, url=args.url,
-                        document=args.from_file)
-        for x in [r, *r.variants]:
-            ok += x.ok
-            print_result(x)
+    try:
+        for _ in range(max(1, args.count or 1)):
+            r = studio.make(args.topic, source=args.source, script_file=args.script, url=args.url,
+                            document=args.from_file)
+            end_live(line)
+            for x in [r, *r.variants]:
+                ok += x.ok
+                print_result(x)
+            if line:
+                _Console.live = line
+    finally:
+        end_live(line)
     return 0 if ok else 1
 
 
@@ -144,7 +235,14 @@ def cmd_demo(args, s: Settings) -> int:
     from .pipeline import Studio
     s = s.with_overrides(offline=True, upload=False)
     print("Demo: offline script + free neural voice + generated backgrounds. No API keys used.\n")
-    r = Studio(s).make(args.topic, style=s.style if s.style != "auto" else None)
+    line = live_line(args)
+    studio = Studio(s, progress=line)
+    if line:
+        line.eta_fn = studio.eta
+    try:
+        r = studio.make(args.topic, style=s.style if s.style != "auto" else None)
+    finally:
+        end_live(line)
     if r.ok:
         print(f"\n✔ Demo video: {r.video}\n  (cover.jpg, captions.srt and metadata.json are next to it)")
         return 0
@@ -276,8 +374,12 @@ def cmd_ideas(args, s: Settings) -> int:
 def cmd_clip(args, s: Settings) -> int:
     from .clipper import make_clips
     from .pipeline import Studio
-    results = make_clips(Studio(s), args.source, count=args.count, crop=args.crop,
-                         min_seconds=args.min_seconds, max_seconds=args.max_seconds)
+    line = live_line(args)
+    try:
+        results = make_clips(Studio(s, progress=line), args.source, count=args.count, crop=args.crop,
+                             min_seconds=args.min_seconds, max_seconds=args.max_seconds)
+    finally:
+        end_live(line)
     for r in results:
         print_result(r)
     return 0 if any(r.ok for r in results) else 1
@@ -298,6 +400,17 @@ def cmd_stats(args, s: Settings) -> int:
     for r in rows[:args.limit]:
         score = r["score"] if r.get("score") is not None else "-"
         print(f"{r['views']:>9,} {r['likes'] or 0:>7,} {score:>5}  {r['title']}")
+    from .analytics import calibration
+    cal = calibration(h)
+    rho = cal["score_vs_views"]
+    corr = f"ρ = {rho:.2f}, " if rho is not None else ""
+    print(f"\nRetention score vs views: {corr}{cal['verdict']} ({cal['scored']} scored video(s) public for 2+ days)")
+    if cal["styles"]:
+        print("Median views by format: " + ", ".join(f"{x['style']} {x['median_views']:,} ({x['videos']})"
+                                                     for x in cal["styles"][:6]))
+    if cal["hours"]:
+        print("Best publish hours (local): " + ", ".join(f"{x['hour']:02d}:00 {x['median_views']:,}"
+                                                         for x in cal["hours"]))
     return 0
 
 
@@ -334,8 +447,9 @@ def build_parser() -> argparse.ArgumentParser:
     _common(c)
     c.add_argument("source", help="video file, or a URL (needs: pip install yt-dlp)")
     c.add_argument("--count", type=int, default=3, help="how many clips (default 3)")
-    c.add_argument("--crop", choices=["center", "blur"], default="center",
-                   help="center = fill the frame; blur = whole picture over a blurred copy")
+    c.add_argument("--crop", choices=["center", "blur", "face"], default="center",
+                   help="center = fill the frame; blur = whole picture over a blurred copy; "
+                        "face = follow the speaker's face (pip install opencv-python-headless)")
     c.add_argument("--min-seconds", type=int, default=20)
     c.add_argument("--max-seconds", type=int, default=58)
     c.set_defaults(func=cmd_clip)

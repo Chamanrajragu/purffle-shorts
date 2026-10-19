@@ -6,9 +6,11 @@ from purffle_shorts.config import Settings
 from purffle_shorts.script import (
     Script,
     build_prompt,
+    lint_script,
     normalize,
     offline_script,
     review_script,
+    rubric_score,
     scene_plan,
     script_from_data,
     translate_script,
@@ -21,8 +23,8 @@ class FakeLLM:
     def __init__(self, reply=None, error=None):
         self.reply, self.error, self.calls = reply, error, []
 
-    def complete_json(self, system, user, schema=None, max_tokens=4000):
-        self.calls.append({"system": system, "user": user, "schema": schema})
+    def complete_json(self, system, user, schema=None, max_tokens=4000, temperature=None):
+        self.calls.append({"system": system, "user": user, "schema": schema, "temperature": temperature})
         if self.error:
             raise self.error
         return self.reply(user) if callable(self.reply) else self.reply
@@ -91,7 +93,8 @@ def test_doctor_rewrite_is_used_when_sane():
     out = review_script(llm, _draft(), settings)
     assert out.title == "Better" and out.score == 91 and out.review[0] == "Weak hook"
     assert out.category == "pets" and out.style == "facts"
-    assert llm.calls[0]["schema"]["required"] == ["score", "issues", "script"]
+    assert llm.calls[0]["schema"]["required"] == ["rubric", "issues", "script"]
+    assert all(c["temperature"] == 0.2 for c in llm.calls)  # grading is repeatable
 
 
 def test_doctor_rewrite_with_wrong_length_is_ignored():
@@ -162,3 +165,83 @@ def test_offline_reddit_story():
     s = offline_script("", Settings(), "reddit")
     assert s.style == "reddit" and s.cast == ["r/confessions", "u/quiet_otter22"]
     assert s.scenes[0].narration.startswith("Am I wrong") and len(s.scenes) == 8
+
+
+RUBRIC_HIGH = {"hook": 9, "curiosity": 8, "pacing": 8, "specificity": 8, "payoff": 8, "accuracy": 9}
+RUBRIC_LOW = {"hook": 4, "curiosity": 5, "pacing": 5, "specificity": 4, "payoff": 5, "accuracy": 7}
+
+
+def _better(title="Better"):
+    return {"title": title, "hook_text": "WOW", "cast": [], "scenes": _scenes(5, 9), "description": "d",
+            "hashtags": ["#cats"], "tags": ["cats"], "category": "pets"}
+
+
+def test_rubric_is_a_weighted_score():
+    assert rubric_score(RUBRIC_HIGH) == 84
+    assert rubric_score({k: 10 for k in RUBRIC_HIGH}) == 100
+    assert rubric_score({"hook": 10}) == 65  # missing parts count as average (5)
+    assert rubric_score("nonsense") is None
+
+
+def test_the_stored_score_belongs_to_the_script_that_is_used():
+    replies = iter([{"rubric": RUBRIC_LOW, "issues": ["Weak hook"], "script": _better()},   # review the draft
+                    {"rubric": RUBRIC_HIGH, "issues": ["Ending could be punchier"]}])      # grade the rewrite
+    llm = FakeLLM(lambda user: next(replies))
+    out = review_script(llm, _draft(), Settings(target_seconds=16))
+    assert out.title == "Better" and out.score == 84 and out.rubric["hook"] == 9
+    assert out.review[0] == "Ending could be punchier"  # what is still weak in the final script
+    assert llm.calls[1]["schema"]["required"] == ["rubric", "issues"]
+
+
+def test_a_rewrite_that_scores_lower_is_thrown_away():
+    replies = iter([{"rubric": RUBRIC_HIGH, "issues": ["Minor"], "script": _better("Worse")},
+                    {"rubric": RUBRIC_LOW, "issues": ["Lost the hook"]}])
+    out = review_script(FakeLLM(lambda user: next(replies)), _draft(), Settings(target_seconds=16))
+    assert out.title == "Draft" and out.score == 84
+
+
+def test_extra_rounds_until_the_target_score():
+    replies = iter([{"rubric": RUBRIC_LOW, "issues": ["a"], "script": _better("Round 1")},
+                    {"rubric": {**RUBRIC_LOW, "hook": 7}, "issues": ["b"]},                 # 59 < target
+                    {"rubric": {**RUBRIC_LOW, "hook": 7}, "issues": ["b"], "script": _better("Round 2")},
+                    {"rubric": RUBRIC_HIGH, "issues": []}])                                 # 84 >= 80: stop
+    llm = FakeLLM(lambda user: next(replies))
+    out = review_script(llm, _draft(), Settings(target_seconds=16, script_review_rounds=3))
+    assert out.title == "Round 2" and out.score == 84 and len(llm.calls) == 4
+
+
+def test_review_prompt_carries_the_automatic_checks():
+    llm = FakeLLM({"rubric": RUBRIC_HIGH, "issues": []})
+    hook = "Hey guys, welcome back to the channel, today we are going to talk about something really cool."
+    draft = normalize({"title": "D", "scenes": [{"narration": hook, "search_query": "x"}] + _scenes(3)},
+                      "cats", "facts", "en")
+    review_script(llm, draft, Settings(script_review="score", target_seconds=16))
+    user = llm.calls[0]["user"]
+    assert "Automatic checks already found" in user and "greeting" in user and "first spoken sentence" in user
+
+
+def test_lint_finds_the_obvious_problems():
+    script = normalize({"title": "T", "scenes": [
+        {"narration": "Hello and welcome, this is a video about cats and the things cats really do.",
+         "search_query": "cat"},
+        {"narration": "Cats sleep. Cats basically sleep a lot, really, just sleep, actually.", "search_query": "cat"},
+    ]}, "pets", "facts", "en")
+    found = " ".join(lint_script(script, Settings(target_seconds=40)))
+    assert "greeting" in found and "call to action" in found and "filler" in found
+    assert "No concrete number" in found and "words for a 40-second video" in found
+    good = normalize({"title": "T", "scenes": [
+        {"narration": "Cats sleep sixteen hours a day.", "search_query": "cat"},
+        {"narration": "Which fact surprised you? Follow for more.", "search_query": "cat"},
+    ]}, "pets", "facts", "en")
+    assert not [c for c in lint_script(good, Settings(target_seconds=5)) if "call to action" in c or "number" in c]
+
+
+def test_lint_judges_the_opening_sentence_and_accepts_a_closing_question():
+    script = normalize({"title": "T", "scenes": [
+        {"narration": "Octopus blood is blue. It carries oxygen with copper instead of iron, which works far "
+                      "better in cold water with little oxygen.", "search_query": "octopus"},
+        {"narration": "What's the weirdest animal fact you've heard?", "search_query": "ocean"},
+    ]}, "octopus", "facts", "en")
+    found = " ".join(lint_script(script, Settings(target_seconds=10)))
+    assert "first spoken sentence" not in found  # "Octopus blood is blue." is 4 words
+    assert "call to action" not in found         # a question invites comments

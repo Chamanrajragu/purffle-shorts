@@ -21,15 +21,16 @@ import time
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
+from statistics import median
 
 from . import ffmpeg, tts
 from .config import Settings
 from .llm import LLMConfigError
 from .overlays import build_overlays
-from .render import _encode_args, compose, extract_frame
+from .render import _encode_args, compose, pick_cover
 from .script import normalize
 from .timing import Word, caption_chunks, srt
-from .utils import PermanentError, slugify
+from .utils import PermanentError, download, slugify
 
 log = logging.getLogger("purffle")
 
@@ -60,7 +61,9 @@ CLIP_SCHEMA = {
     "required": ["clips"],
     "additionalProperties": False,
 }
-CROPS = ("center", "blur")
+CROPS = ("center", "blur", "face")
+YUNET_URL = ("https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/"
+             "face_detection_yunet_2023mar.onnx")
 MAX_TRANSCRIPT_CHARS = 60_000
 
 
@@ -117,8 +120,9 @@ def transcribe(video: Path, work: Path, settings: Settings) -> list[Word]:
     ffmpeg.run(["-i", str(video), "-vn", "-ac", "1", "-ar", "16000", "-b:a", "48k", str(audio)], label="extract audio")
     lang = settings.language.split("-")[0]
     try:
-        words = tts._align_faster_whisper(audio, lang)
-        log.info("Transcribed %d words with faster-whisper", len(words))
+        model = tts.whisper_model(settings)
+        words = tts._align_faster_whisper(audio, lang, model, vad=True)
+        log.info("Transcribed %d words with faster-whisper (%s)", len(words), model)
         return words
     except ImportError:
         pass
@@ -217,7 +221,7 @@ def pick_clips(llm, sents: list[Sentence], settings: Settings, count: int, min_s
             nxt = j + 1
         return plans
     system, user = clip_prompt(sents, count, min_s, max_s, settings)
-    data = llm.complete_json(system, user, CLIP_SCHEMA, max_tokens=6000)
+    data = llm.complete_json(system, user, CLIP_SCHEMA, max_tokens=6000, temperature=0.3)  # judge, don't invent
     plans: list[ClipPlan] = []
     for c in data.get("clips") or []:
         try:
@@ -236,10 +240,128 @@ def pick_clips(llm, sents: list[Sentence], settings: Settings, count: int, min_s
     return plans[:count]
 
 
+# ------------------------------------------------------------------------------------------ face framing
+def _face_detector(settings: Settings):
+    """A function image -> [(centre x, centre y, area, score)], or None without OpenCV. Prefers the YuNet
+    neural detector (its 230 KB model is downloaded once into data/models); falls back to OpenCV 4's
+    Haar cascade."""
+    try:
+        import cv2
+    except ImportError:
+        return None
+    if hasattr(cv2, "FaceDetectorYN"):
+        model = settings.data_path / "models" / "face_detection_yunet_2023mar.onnx"
+        try:
+            if not model.exists() or model.stat().st_size < 100_000:
+                download(YUNET_URL, model, timeout=60, max_bytes=5 * 1024 * 1024)
+            det = cv2.FaceDetectorYN.create(str(model), "", (320, 320), 0.6, 0.3, 20)
+
+            def yunet(img):
+                h, w = img.shape[:2]
+                det.setInputSize((w, h))
+                _, faces = det.detect(img)
+                return [(float(f[0] + f[2] / 2), float(f[1] + f[3] / 2), float(f[2] * f[3]), float(f[-1]))
+                        for f in (faces if faces is not None else [])]
+            return yunet
+        except Exception as e:
+            log.warning("Face detector model unavailable (%s)", e)
+    if hasattr(cv2, "CascadeClassifier"):
+        cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+
+        def haar(img):
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            return [(x + w / 2, y + h / 2, float(w * h), 1.0)
+                    for x, y, w, h in cascade.detectMultiScale(gray, 1.1, 5, minSize=(24, 24))]
+        return haar
+    return None
+
+
+def face_samples(settings: Settings, source: Path, start: float, dur: float, work: Path,
+                 every: float = 0.5) -> list[tuple[float, float | None]] | None:
+    """(time in the clip, horizontal centre of the main face as a fraction of the width) about twice a second.
+    The main face is the biggest confident one. None when no detector is available."""
+    detect = _face_detector(settings)
+    if detect is None:
+        return None
+    import cv2
+    frames = work / "faces"
+    frames.mkdir(parents=True, exist_ok=True)
+    ffmpeg.run(["-ss", f"{start:.3f}", "-t", f"{dur:.3f}", "-i", str(source), "-vf",
+                f"fps={1 / every:.4f},scale=640:-2", str(frames / "f%04d.jpg")], label="face samples")
+    out: list[tuple[float, float | None]] = []
+    for k, f in enumerate(sorted(frames.glob("f*.jpg"))):
+        img = cv2.imread(str(f))
+        if img is None:
+            continue
+        faces = detect(img)
+        main = max(faces, key=lambda c: c[2] * c[3], default=None)
+        out.append(((k + 0.5) * every, main[0] / img.shape[1] if main else None))
+    return out
+
+
+def plan_face_crop(samples: list[tuple[float, float | None]], dur: float, jump: float = 0.12,
+                   min_seconds: float = 1.0) -> list[tuple[float, float]]:
+    """[(from time, face centre x)]: one steady framing per camera shot. A new framing starts when the face
+    moves more than ``jump`` of the width (a camera cut, or the other speaker); shorter than ``min_seconds``
+    and it joins the framing before it, so detection noise never makes the picture jitter."""
+    known = _smooth([(t, x) for t, x in samples if x is not None])
+    if not known:
+        return []
+    segs: list[list] = []
+    for t, x in known:
+        if segs and abs(x - median(segs[-1][1])) <= jump:
+            segs[-1][1].append(x)
+        else:
+            segs.append([t, [x]])
+    merged: list[list] = []
+    for i, (t0, xs) in enumerate(segs):
+        end = segs[i + 1][0] if i + 1 < len(segs) else dur
+        if merged and end - t0 < min_seconds:
+            merged[-1][1].extend(xs)
+        else:
+            merged.append([t0, list(xs)])
+    return [(0.0 if i == 0 else round(t0 - 0.25, 2), round(median(xs), 4)) for i, (t0, xs) in enumerate(merged)]
+
+
+def _smooth(known: list[tuple[float, float]], radius: int = 2) -> list[tuple[float, float]]:
+    """A running median over neighbouring samples: one stray detection (the other speaker for a moment, a
+    poster on the wall) is outvoted instead of starting a framing of its own."""
+    xs = [x for _, x in known]
+    out = []
+    for i, (t, x) in enumerate(known):
+        win = sorted(xs[max(0, i - radius):i + radius + 1])
+        n = len(win)
+        if n % 2:
+            m = win[n // 2]
+        else:  # even window: of the two middle values, the one nearer this sample
+            lo, hi = win[n // 2 - 1], win[n // 2]
+            m = lo if abs(lo - x) <= abs(hi - x) else hi
+        out.append((t, m))
+    return out
+
+
+def face_crop_filter(settings: Settings, src_w: int, src_h: int, plan: list[tuple[float, float]]) -> str | None:
+    """A crop that keeps the face in frame, switching framing at the planned times. None when the source is
+    not wider than the output (nothing to choose) or no face was found."""
+    W, H = settings.width, settings.height
+    if not plan or not src_w or not src_h or src_w / src_h <= W / H + 0.01:
+        return None
+    cw, ch = int(src_h * W / H) // 2 * 2, src_h // 2 * 2
+
+    def left(c: float) -> int:
+        return max(0, min(src_w - cw, int(c * src_w - cw / 2))) // 2 * 2
+    expr = str(left(plan[-1][1]))
+    for i in range(len(plan) - 2, -1, -1):
+        expr = f"if(lt(t,{plan[i + 1][0]:.2f}),{left(plan[i][1])},{expr})"
+    return f"crop={cw}:{ch}:x='{expr}':y=0,scale={W}:{H}:flags=lanczos,setsar=1"
+
+
 # ------------------------------------------------------------------------------------------ rendering
-def crop_filter(settings: Settings, mode: str) -> str:
+def crop_filter(settings: Settings, mode: str, face: str | None = None) -> str:
     W, H = settings.width, settings.height
     cover = f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},setsar=1"
+    if mode == "face" and face:
+        return face
     if mode == "blur":  # whole frame in the middle, a blurred copy fills the rest
         return (f"split[a][b];[a]{cover},boxblur=24:3,eq=brightness=-0.10[bg];"
                 f"[b]scale={W}:{H}:force_original_aspect_ratio=decrease:flags=lanczos[fg];"
@@ -248,15 +370,27 @@ def crop_filter(settings: Settings, mode: str) -> str:
 
 
 def render_clip(settings: Settings, source: Path, plan: ClipPlan, words: list[Word], folder: Path,
-                crop: str = "center") -> tuple[Path, list, float]:
+                crop: str = "center", src_size: tuple[int, int] | None = None) -> tuple[Path, list, float]:
     s = replace(settings, music_volume=0.0, transition="none", ken_burns=False)
     work = folder / "work"
     work.mkdir(parents=True, exist_ok=True)
     dur = round(plan.duration + 0.25, 3)
     F = s.fps
+    face = None
+    if crop == "face":
+        if src_size is None:
+            info = ffmpeg.probe(source)
+            src_size = (info["width"], info["height"])
+        samples = face_samples(s, source, plan.start, dur, work)
+        if samples is None:
+            log.warning("Face framing needs OpenCV (pip install opencv-python-headless); cropping the centre")
+        else:
+            framing = plan_face_crop(samples, dur)
+            face = face_crop_filter(s, *src_size, framing)
+            log.info("Face framing: %s", f"{len(framing)} shot(s)" if face else "no face found, cropping the centre")
     seg = work / "seg00.mp4"
     ffmpeg.run(["-ss", f"{plan.start:.3f}", "-i", str(source), "-t", f"{dur:.3f}", "-an",
-                "-vf", f"{crop_filter(s, crop)},fps={F}", *_encode_args(s, final=False),
+                "-vf", f"{crop_filter(s, crop, face)},fps={F}", *_encode_args(s, final=False),
                 "-frames:v", str(max(2, round(dur * F))), str(seg)], label="clip video")
     voice = work / "voice.wav"
     ffmpeg.run(["-ss", f"{plan.start:.3f}", "-i", str(source), "-t", f"{dur:.3f}", "-vn", "-ac", "1",
@@ -316,9 +450,10 @@ def make_clips(studio, src: str, *, count: int = 3, crop: str = "center", upload
             folder = (s.out_path / f"{stamp}_{slugify(script.title)}-{n}").resolve()
             folder.mkdir(parents=True, exist_ok=True)
             try:
-                video, chunks, dur = render_clip(s, source, plan, words, folder, crop)
+                video, chunks, dur = render_clip(s, source, plan, words, folder, crop,
+                                                 (info["width"], info["height"]))
                 out = ffmpeg.probe(video)
-                extract_frame(video, min(1.2, dur / 3), folder / "cover.jpg")
+                pick_cover(video, folder / "cover.jpg", folder / "work", total=dur, until=min(3.0, dur * 0.4))
                 (folder / "captions.srt").write_text(srt(chunks), encoding="utf-8")
                 title, description = final_title(script, s), final_description(script, set(), s)
                 meta = {"title": title, "description": description, "tags": script.tags, "category_id": "24",

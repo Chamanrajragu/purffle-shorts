@@ -11,10 +11,11 @@ Two renderers produce the same look:
 
 from __future__ import annotations
 
-import functools
+import concurrent.futures
 import logging
 import os
 import shutil
+import threading
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -94,9 +95,25 @@ def resolve_font(settings: Settings, style_font: str = "anton") -> tuple[Path | 
     return None, "Arial"
 
 
-@functools.lru_cache(maxsize=64)
+_fonts = threading.local()
+
+
 def load_font(path: str | None, size: int, weight: int = 800) -> ImageFont.FreeTypeFont:
-    size = max(8, int(size))
+    """A cached font object. The cache is per thread: caption states are drawn in parallel and a FreeType
+    face must not be used by two threads at once."""
+    cache = getattr(_fonts, "cache", None)
+    if cache is None:
+        cache = _fonts.cache = {}
+    key = (path, max(8, int(size)), weight)
+    font = cache.get(key)
+    if font is None:
+        if len(cache) > 96:
+            cache.clear()
+        font = cache[key] = _open_font(path, key[1], weight)
+    return font
+
+
+def _open_font(path: str | None, size: int, weight: int) -> ImageFont.FreeTypeFont:
     if not path:
         return ImageFont.load_default(size=size)
     font = ImageFont.truetype(path, size)
@@ -162,6 +179,18 @@ CENTER_Y = {"upper": 0.30, "center": 0.56, "lower": 0.68}
 def _rgba(hex_color: str, alpha: int = 255) -> tuple[int, int, int, int]:
     h = hex_color.lstrip("#")
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), alpha
+
+
+def _parallel(fn, jobs: list) -> None:
+    """Draw overlay states on several threads (Pillow releases the GIL while blurring and compressing)."""
+    workers = max(1, min(8, (os.cpu_count() or 2), len(jobs)))
+    if workers == 1:
+        for job in jobs:
+            fn(job)
+        return
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers, thread_name_prefix="overlay") as ex:
+        for _ in ex.map(fn, jobs):
+            pass
 
 
 def display_word(text: str, uppercase: bool) -> str:
@@ -309,6 +338,7 @@ class PillowCaptions:
                 entries.append((name, until - t))
                 t = until
 
+        jobs: list[tuple[str, list[str], int | None, int, float, str]] = []
         for ci, chunk in enumerate(chunks):
             words = [display_word(w.text, self.s.caption_uppercase) for w in chunk.words]
             if not any(words):
@@ -326,13 +356,19 @@ class PillowCaptions:
                     for sc in POP_SCALES:
                         n += 1
                         name = f"c{ci:04d}_pop{n:05d}.png"
-                        self.render(words, k, size, sc, chunk.speaker).save(out_dir / name, compress_level=1)
+                        jobs.append((name, words, k, size, sc, chunk.speaker))
                         add(name, min(t + frame, end))
                 n += 1
                 name = f"c{ci:04d}_w{n:05d}.png"
-                self.render(words, k, size, speaker=chunk.speaker).save(out_dir / name, compress_level=1)
+                jobs.append((name, words, k, size, 1.0, chunk.speaker))
                 add(name, end)
         add(blank.name, total)
+
+        def draw(job) -> None:
+            name, words, k, size, sc, speaker = job
+            self.render(words, k, size, sc, speaker).save(out_dir / name, compress_level=1)
+
+        _parallel(draw, jobs)
         if not entries:
             entries.append((blank.name, total))
         lines = ["ffconcat version 1.0"]
@@ -522,13 +558,16 @@ class ChatScreen:
         self.ph = int(H * 0.66) // 2 * 2
         self.font_path = str(font_path) if font_path else None
         self.size = int(U * 0.043)
-        self.font = load_font(self.font_path, self.size, weight=500)
         self.pad = int(U * 0.03)
         self.header_h = int(U * 0.13)
         self.contact = contact or "Unknown"
         self.max_bubble = int(self.pw * 0.74)
         self.line_h = sum(self.font.getmetrics()) + int(self.size * 0.12)
         self.gap = int(self.size * 0.45)
+
+    @property
+    def font(self) -> ImageFont.FreeTypeFont:
+        return load_font(self.font_path, self.size, weight=500)  # per thread: states are drawn in parallel
 
     def _wrap(self, text: str) -> list[str]:
         lines, cur = [], ""
@@ -617,14 +656,15 @@ class ChatScreen:
         out_dir.mkdir(parents=True, exist_ok=True)
         frame = 1.0 / self.s.fps
         entries: list[tuple[str, float]] = []
+        jobs: list[tuple[str, list[ChatMessage], bool, float]] = []
         t, n = 0.0, 0
 
-        def add(img: Image.Image, until: float):
+        def add(shown: list[ChatMessage], until: float, typing: bool = False, enter: float = 0.0):
             nonlocal t, n
             if until - t > 0.001:
                 n += 1
                 name = f"chat{n:04d}.png"
-                img.save(out_dir / name, compress_level=1)
+                jobs.append((name, shown, typing, enter))
                 entries.append((name, until - t))
                 t = until
 
@@ -632,16 +672,22 @@ class ChatScreen:
             shown = messages[:k]
             if k and msg.speaker == "A":  # the contact is typing...
                 typing_from = max(t, msg.start - 0.55)
-                add(self.render(shown), typing_from)
-                add(self.render(shown, typing=True), msg.start)
+                add(shown, typing_from)
+                add(shown, msg.start, typing=True)
             else:
-                add(self.render(shown), msg.start)
+                add(shown, msg.start)
             end = messages[k + 1].start if k + 1 < len(messages) else total
             for e in (0.6, 0.25):  # pop-in
-                add(self.render(messages[:k + 1], enter=e), min(t + frame, end))
-        add(self.render(messages), total)
+                add(messages[:k + 1], min(t + frame, end), enter=e)
+        add(messages, total)
         if not entries:
-            add(self.render(messages), max(total, frame))
+            add(messages, max(total, frame))
+
+        def draw(job) -> None:
+            name, shown, typing, enter = job
+            self.render(shown, typing=typing, enter=enter).save(out_dir / name, compress_level=1)
+
+        _parallel(draw, jobs)
         lines = ["ffconcat version 1.0"]
         for name, dur in entries:
             lines += [f"file '{name}'", f"duration {dur:.4f}"]

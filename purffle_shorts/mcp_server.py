@@ -59,7 +59,9 @@ TOOLS: list[dict] = [
                     "of its best moments, with captions. Only for videos the user owns or may reuse.",
      "inputSchema": {"type": "object", "required": ["source"], "properties": {
          "source": {"type": "string"}, "count": {"type": "integer", "minimum": 1, "maximum": 10},
-         "crop": {"type": "string", "enum": ["center", "blur"]}, "upload": {"type": "boolean"}}}},
+         "crop": {"type": "string", "enum": ["center", "blur", "face"],
+                  "description": "face = keep the speaker's face in frame (needs OpenCV)"},
+         "upload": {"type": "boolean"}}}},
     {"name": "plan_ideas",
      "description": "Brainstorm specific video ideas and add them to the idea queue that the autopilot uses first.",
      "inputSchema": {"type": "object", "properties": {

@@ -100,7 +100,7 @@ class FakeLLM:
     def __init__(self, settings):
         self.providers, self.label = [object()], "fake:model"
 
-    def complete_json(self, system, user, schema=None, max_tokens=4000):
+    def complete_json(self, system, user, schema=None, max_tokens=4000, temperature=None):
         FakeLLM.calls.append(user[:40])
         if user.startswith("Review this"):
             return {"score": 64, "issues": ["The hook could be sharper"]}
@@ -117,7 +117,7 @@ def test_translated_copy_reuses_the_footage(fast, monkeypatch, tmp_path):
     monkeypatch.setattr(P, "LLM", FakeLLM)
     searches = []
     real = P.Visuals.for_scenes
-    monkeypatch.setattr(P.Visuals, "for_scenes", lambda self, *a: searches.append(a) or real(self, *a))
+    monkeypatch.setattr(P.Visuals, "for_scenes", lambda self, *a, **k: searches.append(a) or real(self, *a, **k))
     s = fast.with_overrides(offline=False, visual_sources=["local"], media_dir=str(tmp_path / "none"))
     studio = P.Studio(s)
     r = studio.make("cats", languages=["es", "en"])
@@ -186,7 +186,7 @@ def test_clip_moments_snap_to_sentences_and_never_overlap():
     sents = clipper.sentences(_fake_transcript())
 
     class LLM:
-        def complete_json(self, system, user, schema=None, max_tokens=4000):
+        def complete_json(self, system, user, schema=None, max_tokens=4000, temperature=None):
             assert "[0.2-" in user
             return {"clips": [
                 {"start": 0.1, "end": 11.0, "title": "A", "hook_text": "", "description": "", "hashtags": [],
@@ -236,3 +236,20 @@ def test_translation_without_an_llm_keeps_the_original(fast, tmp_path, monkeypat
     r = P.Studio(s).make(script_file=f, languages=["fr"])
     assert r.ok and r.video.exists()
     assert len(r.variants) == 1 and not r.variants[0].ok and "LLM" in r.variants[0].error
+
+
+@needs_ffmpeg
+def test_long_scenes_are_cut_into_several_shots(fast, tmp_path):
+    long_line = ("The octopus can change the colour and the texture of its skin in a fraction of a second, "
+                 "matching rocks, sand and coral so well that divers swim right past it without ever noticing.")
+    f = tmp_path / "script.json"
+    f.write_text(json.dumps({"title": "Master Of Disguise", "hook_text": "WHERE IS IT?",
+                             "scenes": [{"narration": long_line, "search_query": "octopus camouflage"},
+                                        {"narration": "Follow for more.", "search_query": "ocean"}]}))
+    r = P.Studio(fast.with_overrides(transition="fade")).make(script_file=f)
+    assert r.ok, r.error
+    meta = json.loads((r.folder / "metadata.json").read_text())
+    assert len(meta["visuals"]) >= 4  # the long scene became at least 3 shots, plus the last scene
+    one_shot = P.Studio(fast.with_overrides(transition="fade", max_shot_seconds=0)).make(script_file=f)
+    assert len(json.loads((one_shot.folder / "metadata.json").read_text())["visuals"]) == 2
+    assert abs(ffmpeg.probe(r.video)["duration"] - ffmpeg.probe(one_shot.video)["duration"]) < 0.1

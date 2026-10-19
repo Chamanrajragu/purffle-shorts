@@ -70,7 +70,7 @@ async function post(url, body) {
 const S = {
   info: null, options: null, jobs: [], view: "create",
   form: store.get("form", {}), draft: store.get("draft", null), createJob: store.get("createJob", null),
-  lib: { status: "", q: "" }, seen: new Map(), voices: {},
+  lib: { status: "", q: "" }, seen: new Map(), voices: {}, live: false,
 };
 
 // ------------------------------------------------------------------ helpers
@@ -135,7 +135,8 @@ async function boot() {
   $("#drawer").addEventListener("click", e => { if (e.target.closest("[data-close]")) closeDrawer(); });
   route();
   tick();
-  setInterval(tick, 1500);
+  connectEvents();
+  setInterval(() => { if (!S.live) tick(); }, 1500);  // polling only while the live stream is down
   setInterval(async () => { try { S.info = await get("/api/info"); status(); } catch { /* server restarting */ } }, 15000);
 }
 
@@ -160,10 +161,26 @@ function route() {
   window.scrollTo(0, 0);
 }
 
-// ------------------------------------------------------------------ jobs polling
+// ------------------------------------------------------------------ jobs: live stream, polling as fallback
+function connectEvents() {
+  if (!window.EventSource) return;
+  const es = new EventSource("/api/events");
+  es.addEventListener("jobs", e => {
+    S.live = true;
+    let jobs;
+    try { jobs = JSON.parse(e.data); } catch { return; }
+    applyJobs(jobs);
+  });
+  es.onerror = () => { S.live = false; };  // the browser reconnects by itself; polling covers the gap
+}
+
 async function tick() {
   let jobs;
   try { jobs = await get("/api/jobs"); } catch { return; }
+  applyJobs(jobs);
+}
+
+function applyJobs(jobs) {
   S.jobs = jobs;
   const active = jobs.filter(j => j.status === "running" || j.status === "queued").length;
   const qb = $("#qbadge");
@@ -410,20 +427,47 @@ function drawLive() {
   const running = j.status === "running" || j.status === "queued";
   const name = j.status === "queued" ? "Waiting for the previous job" : j.status === "failed" ? "Failed"
     : j.status === "done" ? "Finished" : (STAGES[idx] || [0, "Starting"])[1];
+  const sig = `${j.id}:${j.status}:${j.stage}`;
+  if (box.dataset.sig === sig && j.status === "running" && $("#live-pct", box)) {  // just the moving parts
+    $("#live-pct", box).textContent = progressText(j);
+    $("#live-msg", box).textContent = j.message || "";
+    $("#live-bar", box).style.width = Math.min(100, j.pct) + "%";
+    $("#live-log", box).textContent = j.log.slice(-8).join("\n");
+    return;
+  }
+  box.dataset.sig = sig;
   box.innerHTML = `<section class="card live ${j.status}">
     <div class="actions"><span class="status-pill ${j.status}">${j.kind === "draft" ? "Drafting" : "Making"} · ${j.status}</span>
+      ${running ? `<button class="btn ghost sm" data-cancel="${j.id}" type="button">Cancel</button>` : ""}
       ${!running ? `<button class="btn ghost sm" id="live-close" type="button" aria-label="Dismiss">${I.x}</button>` : ""}</div>
     <h3>${esc(r.title || j.label)}</h3>
     ${running ? `<div class="stages">${STAGES.map(([k], n) => `<span class="${n < idx ? "done" : n === idx ? "now" : ""}" title="${k}"></span>`).join("")}</div>
-      <div class="stage-name"><b>${esc(name)}</b><span>${esc(j.message || "")}</span></div>` : ""}
+      <div class="stage-name"><b>${esc(name)}</b><span id="live-pct">${esc(progressText(j))}</span></div>
+      <div class="pbar"><i id="live-bar" data-w="${j.pct}"></i></div>
+      <p class="hint" id="live-msg">${esc(j.message || "")}</p>` : ""}
     ${j.status === "done" && r.id ? `<div class="actions"><button class="btn primary sm" type="button" data-open="${r.id}">${I.play}Watch</button>
       ${r.score != null ? `<span class="chip ${r.score >= 75 ? "ok" : r.score >= 55 ? "accent" : "bad"}">Retention score ${r.score}</span>` : ""}
       <span class="chip">${esc(r.status)}</span>${(r.variants || []).map(v => `<span class="chip ${v.ok ? "ok" : "bad"}">${esc(v.language)} ${v.ok ? "✓" : "✗"}</span>`).join("")}</div>` : ""}
     ${j.status === "failed" ? `<div class="err">${esc(r.error || j.message)}</div>` : ""}
     ${running ? `<pre class="log" id="live-log">${esc(j.log.slice(-8).join("\n"))}</pre>` : ""}
   </section>`;
+  paint(box);
   const c = $("#live-close");
   if (c) c.onclick = () => { S.createJob = null; store.set("createJob", null); drawSide(); };
+  const x = $("[data-cancel]", box);
+  if (x) x.onclick = () => post(`/api/jobs/${x.dataset.cancel}/cancel`).then(() => toast("Stopping…", "info", 2500)).catch(e => toast(esc(e.message), "bad"));
+}
+
+function progressText(j) {
+  if (j.status !== "running") return j.message || "";
+  return `${j.pct}%` + (j.eta != null ? ` · about ${fmtSec(Math.max(1, j.eta))} left` : "");
+}
+
+const RUBRIC = [["hook", "Hook"], ["curiosity", "Curiosity"], ["pacing", "Pacing"], ["specificity", "Specifics"], ["payoff", "Payoff"], ["accuracy", "Accuracy"]];
+function rubricHtml(r) {
+  if (!r || !RUBRIC.some(([k]) => r[k] != null)) return "";
+  return `<div class="rubric">${RUBRIC.filter(([k]) => r[k] != null).map(([k, label]) =>
+    `<div><span>${label}</span><span class="bar"><i data-w="${r[k] * 10}"></i></span><b>${r[k]}</b></div>`).join("")}</div>`;
 }
 
 function drawEditor() {
@@ -450,7 +494,7 @@ function drawEditor() {
     <div class="actions"><h2>Script</h2><span class="chip">${esc(d.style)}</span><span class="chip">${esc(d.language)}</span>
       <span class="wc" id="wc">${total} words · ~${Math.round(total / 2.6)}s</span>
       <button class="btn ghost sm" id="discard" type="button">${I.trash}Discard</button></div>
-    ${d.score != null ? `<div class="score"><div class="ring" data-p="${d.score}"><b>${d.score}</b></div><div><b>Retention score</b>${d.review && d.review.length ? `<ul>${d.review.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="hint">No issues found.</p>`}</div></div>` : ""}
+    ${d.score != null ? `<div class="score"><div class="ring" data-p="${d.score}"><b>${d.score}</b></div><div class="grow"><b>Retention score</b>${rubricHtml(d.rubric)}${d.review && d.review.length ? `<ul>${d.review.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="hint">No issues found.</p>`}</div></div>` : ""}
     <div class="field"><label>Title</label><input type="text" data-k="title" value="${esc(d.title)}" maxlength="90"></div>
     <div class="field"><label>On-screen hook</label><input type="text" data-k="hook_text" value="${esc(d.hook_text)}" maxlength="48"></div>
     ${multi ? `<div class="grid2"><div class="field"><label>Speaker A</label><input type="text" data-cast="0" value="${esc((d.cast || [])[0] || "")}"></div>
@@ -569,7 +613,7 @@ async function openVideo(id) {
         ${sc ? `<button class="btn sm" type="button" id="d-edit">${I.pen}Edit & re-render</button>` : ""}
         <button class="btn sm danger" type="button" id="d-del">${I.trash}Delete</button>
       </div>
-      ${v.score != null ? `<div class="score"><div class="ring" data-p="${v.score}"><b>${v.score}</b></div><div><b>Retention score</b>${review.length ? `<ul>${review.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}</div></div>` : ""}
+      ${v.score != null ? `<div class="score"><div class="ring" data-p="${v.score}"><b>${v.score}</b></div><div class="grow"><b>Retention score</b>${rubricHtml(m.rubric)}${review.length ? `<ul>${review.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}</div></div>` : ""}
       <dl class="kv">
         <dt>Length</dt><dd>${fmtSec(v.duration)}</dd>
         ${m.resolution ? `<dt>Size</dt><dd>${esc(m.resolution)}</dd>` : ""}
@@ -632,8 +676,8 @@ function drawJobs() {
     const stage = (STAGES.find(([k]) => k === j.stage) || [0, j.stage])[1];
     return `<div class="job ${j.status}">
       <div class="job-top"><span class="kind">${KIND_ICON[j.kind] || I.film}</span>
-        <div class="t"><b>${esc(r.title || j.label)}</b><small><span class="status-pill ${j.status}">${j.status}</span>${running && stage ? ` · ${esc(stage)}` : ""}${running && j.message ? ` · ${esc(j.message)}` : ""}${took != null ? ` · ${fmtSec(took)}` : ""}</small></div>
-        ${j.status === "queued" ? `<button class="btn ghost sm" type="button" data-cancel="${j.id}">Cancel</button>` : ""}
+        <div class="t"><b>${esc(r.title || j.label)}</b><small><span class="status-pill ${j.status}">${j.status}</span>${running && stage ? ` · ${esc(stage)}` : ""}${running ? ` · ${esc(progressText(j))}` : ""}${running && j.message ? ` · ${esc(j.message)}` : ""}${took != null ? ` · ${fmtSec(took)}` : ""}</small></div>
+        ${j.status === "queued" || running ? `<button class="btn ghost sm" type="button" data-cancel="${j.id}">Cancel</button>` : ""}
         ${j.status === "done" && r.id ? `<button class="btn sm" type="button" data-open="${r.id}">${I.play}Watch</button>` : ""}
         ${j.status === "done" && j.kind === "draft" ? `<a class="btn sm" href="#create">${I.pen}Edit</a>` : ""}
         <button class="btn ghost sm" type="button" data-log="${j.id}">${open ? "Hide log" : "Log"}</button>
@@ -720,7 +764,7 @@ function viewClip() {
       <div class="field"><label>Video file or URL</label><input type="text" id="c-src" value="${esc(c.source)}" placeholder="/Users/me/Videos/podcast.mp4  or  https://…"><p class="hint">Local files work out of the box. URLs need <span class="mono">pip install yt-dlp</span>. Only clip videos you own or may reuse.</p></div>
       <div class="grid2">
         <div class="field"><label>Clips</label><div class="range-row"><input type="range" id="c-n" min="1" max="10" value="${c.count}"><output id="c-out">${c.count}</output></div></div>
-        <div class="field"><label>Framing</label>${seg("crop", [["center", "Fill (crop)"], ["blur", "Fit + blur"]], c.crop)}</div>
+        <div class="field"><label>Framing</label>${seg("crop", [["center", "Fill (crop)"], ["face", "Follow face"], ["blur", "Fit + blur"]], c.crop)}</div>
       </div>
       <div class="field"><label class="switch"><input type="checkbox" id="c-up"${c.upload ? " checked" : ""}${S.info.upload ? "" : " disabled"}><span>Upload the clips when done</span></label></div>
       <div class="actions end"><button class="btn primary" id="c-go" type="button">${I.scissors}Find the best moments</button></div>
@@ -747,6 +791,16 @@ function viewClip() {
 }
 
 // ------------------------------------------------------------------ CHANNEL
+function calibrationCard(c) {
+  const rho = c.score_vs_views;
+  const tone = rho == null ? "" : rho >= 0.5 ? "ok" : rho >= 0.25 ? "accent" : "bad";
+  return `<section class="card"><h2>Do the predictions hold up?</h2>
+    <p>${rho != null ? `<span class="chip ${tone}">ρ = ${rho.toFixed(2)}</span> ` : ""}Retention score vs real views: ${esc(c.verdict)}.
+      <span class="muted">Spearman rank correlation over ${c.scored} scored video(s) that have been public for 2+ days.</span></p>
+    ${c.hours.length ? `<p class="muted">Best publish hours (your time): ${c.hours.map(h => `<b>${String(h.hour).padStart(2, "0")}:00</b> ${fmtNum(h.median_views)}`).join(" · ")}</p>` : ""}
+  </section>`;
+}
+
 async function viewChannel() {
   const main = $("#main");
   let ch;
@@ -765,6 +819,7 @@ async function viewChannel() {
     <div class="kpi"><small>Total views</small><b>${fmtNum(i.views)}</b></div>
     <div class="kpi"><small>Ideas queued</small><b>${fmtNum(i.ideas)}</b></div>
   </div>
+  ${ch.calibration && ch.calibration.videos ? calibrationCard(ch.calibration) : ""}
   ${ch.videos.length ? `<div class="grid2">
     <section class="card"><h2>Average views by format</h2>${ch.by_style.map(s => `<div class="hbar"><span>${esc(s.style)}</span><span class="track"><i data-w="${100 * s.avg_views / top}"></i></span><span class="num">${fmtNum(s.avg_views)}</span></div>`).join("")}</section>
     <section class="card"><h2>Best performer</h2>${(() => { const v = ch.videos[0]; return `<h3>${esc(v.title)}</h3><p class="muted">${fmtNum(v.views)} views · ${fmtNum(v.likes)} likes · ${esc(v.style || "")}</p><button class="btn sm" type="button" data-open="${v.id}">${I.play}Open</button>`; })()}</section>

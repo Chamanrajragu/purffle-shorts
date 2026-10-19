@@ -67,15 +67,26 @@ def checks(s: Settings) -> list[dict]:
     from .render import pick_music
     m = pick_music(s)
     add(None, "Music", str(m) if m else f"none (add tracks to {s.music_dir}/)")
-    add(None, "Script Doctor", {"off": "off", "score": "scores scripts", "rewrite": "scores and rewrites scripts"}
-        .get(s.script_review, s.script_review))
+    doctor = {"off": "off", "score": "grades scripts (6-part rubric)",
+              "rewrite": "grades, rewrites and re-grades scripts; keeps the better one"}.get(s.script_review,
+                                                                                          s.script_review)
+    if s.script_review == "rewrite" and s.script_review_rounds > 1:
+        doctor += f", up to {s.script_review_rounds} rounds until {s.script_target_score}/100"
+    add(None, "Script Doctor", doctor)
+    add(None, "Voice cache", "on (re-renders only voice the lines that changed)" if s.voice_cache else "off")
+    add(None, "Pacing", f"long scenes cut into shots of up to {s.max_shot_seconds:g}s" if s.max_shot_seconds
+        else "one shot per scene")
     add(None, "Output", f"{s.width}x{s.height} ({s.orientation})"
         + (f", also in {', '.join(s.also_languages)}" if s.also_languages else ""))
     has_fw = importlib.util.find_spec("faster_whisper") is not None
+    if has_fw:
+        from .tts import whisper_model
+        fw = f"faster-whisper, model {whisper_model(s)}"
     add(True if has_fw or s.openai_api_key else None, "Clipping long videos",
-        "faster-whisper installed" if has_fw else ("OpenAI transcription" if s.openai_api_key
-                                                    else "needs: pip install faster-whisper"))
+        fw if has_fw else ("OpenAI transcription" if s.openai_api_key else "needs: pip install faster-whisper"))
     add(None, "Clip from URLs", "yt-dlp installed" if importlib.util.find_spec("yt_dlp") else "pip install yt-dlp")
+    add(None, "Face framing for clips", "OpenCV installed (--crop face)" if importlib.util.find_spec("cv2")
+        else "optional: pip install opencv-python-headless")
     if s.notify_webhook:
         add(True, "Notifications", "webhook set")
     if s.learn_from_stats:

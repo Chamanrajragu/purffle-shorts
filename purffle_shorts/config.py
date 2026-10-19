@@ -114,6 +114,8 @@ class Settings:
     llm_temperature: float = 0.9
     anthropic_effort: str = ""        # low|medium|high|xhigh|max (blank = API default)
     script_review: str = "rewrite"    # off|score|rewrite — the Script Doctor's second pass
+    script_review_rounds: int = 1     # rewrite rounds while the score is below script_target_score
+    script_target_score: int = 80     # stop improving once a script scores this (0-100)
     learn_from_stats: bool = False    # show the LLM which of your videos got the most / fewest views
 
     # --- voice ----------------------------------------------------------------------------
@@ -124,6 +126,8 @@ class Settings:
     tts_model: str = ""               # engine-specific model (e.g. gpt-4o-mini-tts, eleven_multilingual_v2)
     tts_instructions: str = "Energetic, curious storyteller voice for a YouTube Short. Natural pacing."
     align: str = "auto"               # auto|none|faster-whisper|openai — word timing for engines without it
+    voice_cache: bool = True          # reuse lines already spoken in the same voice (fast re-renders)
+    whisper_model: str = "auto"       # faster-whisper model: auto (large-v3-turbo on a GPU, small on CPU), base...
 
     # --- visuals --------------------------------------------------------------------------
     visual_sources: list[str] = field(default_factory=lambda: ["pexels", "pixabay"])
@@ -140,6 +144,7 @@ class Settings:
     preset: str = "veryfast"
     transition: str = "random"        # random|none|fade|slideup|...
     transition_seconds: float = 0.35
+    max_shot_seconds: float = 4.5     # longer scenes are cut into several shots (0 = one shot per scene)
     color_grade: str = "vivid"        # none|vivid|cinematic|warm|cool|bw
     ken_burns: bool = True
     progress_bar: bool = True
@@ -157,6 +162,7 @@ class Settings:
     music_volume: float = 0.14
     music_ducking: bool = True
     loudness_lufs: float = -14.0
+    voice_enhance: bool = True        # rumble cut, de-esser and gentle compression on the voice
 
     # --- YouTube --------------------------------------------------------------------------
     upload: bool = True
@@ -267,6 +273,8 @@ class Settings:
             llm_temperature=_float("LLM_TEMPERATURE", d.llm_temperature),
             anthropic_effort=_env("ANTHROPIC_EFFORT").lower(),
             script_review=_env("SCRIPT_REVIEW", d.script_review).lower(),
+            script_review_rounds=max(1, min(4, _int("SCRIPT_REVIEW_ROUNDS", d.script_review_rounds))),
+            script_target_score=max(0, min(100, _int("SCRIPT_TARGET_SCORE", d.script_target_score))),
             learn_from_stats=_bool(_env("LEARN_FROM_STATS", "false")),
             tts_engine=_env("TTS_ENGINE", d.tts_engine).lower(),
             tts_voice=_env("TTS_VOICE"),
@@ -275,6 +283,8 @@ class Settings:
             tts_model=_env("TTS_MODEL"),
             tts_instructions=_env("TTS_INSTRUCTIONS", d.tts_instructions),
             align=_env("ALIGN", d.align).lower(),
+            voice_cache=_bool(_env("VOICE_CACHE", "true")),
+            whisper_model=_env("WHISPER_MODEL", d.whisper_model),
             visual_sources=[v.lower() for v in _list(_env("VISUAL_SOURCES", "pexels,pixabay"))],
             media_dir=_env("MEDIA_DIR", d.media_dir),
             image_model=_env("IMAGE_MODEL", d.image_model),
@@ -287,6 +297,7 @@ class Settings:
             preset=_env("PRESET", d.preset),
             transition=_env("TRANSITION", d.transition).lower(),
             transition_seconds=max(0.0, _float("TRANSITION_SECONDS", d.transition_seconds)),
+            max_shot_seconds=max(0.0, _float("MAX_SHOT_SECONDS", d.max_shot_seconds)),
             color_grade=_env("COLOR_GRADE", d.color_grade).lower(),
             ken_burns=_bool(_env("KEN_BURNS", "true")),
             progress_bar=_bool(_env("PROGRESS_BAR", "true")),
@@ -304,6 +315,7 @@ class Settings:
             music_volume=max(0.0, _float("MUSIC_VOLUME", d.music_volume, "SHORTS_MUSIC_VOLUME")),
             music_ducking=_bool(_env("MUSIC_DUCKING", "true")),
             loudness_lufs=_float("LOUDNESS_LUFS", d.loudness_lufs),
+            voice_enhance=_bool(_env("VOICE_ENHANCE", "true")),
             upload=_bool(_env("UPLOAD", "true")),
             privacy=_env("YT_PRIVACY", d.privacy).lower(),
             publish_times=_list(_env("PUBLISH_TIMES")),

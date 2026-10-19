@@ -85,22 +85,39 @@ SCRIPT_SCHEMA = {
     "additionalProperties": False,
 }
 
+# The Script Doctor grades six things separately (0-10 each); the retention score is their weighted sum.
+# Separate, concrete questions give steadier and more explainable scores than one overall number.
+RUBRIC = {
+    "hook": (0.30, "the first line stops the scroll within 2 seconds (bold claim, question or surprise)"),
+    "curiosity": (0.15, "open loops that make the viewer need the next line"),
+    "pacing": (0.15, "no filler, no slow moment, every line moves forward"),
+    "specificity": (0.15, "concrete names, numbers and details instead of vague statements"),
+    "payoff": (0.15, "the ending delivers on the hook and lands a satisfying final beat"),
+    "accuracy": (0.10, "every claim is well established (10 = no risk of a false or exaggerated claim)"),
+}
+RUBRIC_SCHEMA = {
+    "type": "object",
+    "properties": {k: {"type": "integer"} for k in RUBRIC},
+    "required": list(RUBRIC),
+    "additionalProperties": False,
+}
 REVIEW_SCHEMA = {
     "type": "object",
     "properties": {
-        "score": {"type": "integer"},
+        "rubric": RUBRIC_SCHEMA,
         "issues": {"type": "array", "items": {"type": "string"}},
         "script": SCRIPT_SCHEMA,
     },
-    "required": ["score", "issues", "script"],
+    "required": ["rubric", "issues", "script"],
     "additionalProperties": False,
 }
 SCORE_SCHEMA = {
     "type": "object",
-    "properties": {"score": {"type": "integer"}, "issues": {"type": "array", "items": {"type": "string"}}},
-    "required": ["score", "issues"],
+    "properties": {"rubric": RUBRIC_SCHEMA, "issues": {"type": "array", "items": {"type": "string"}}},
+    "required": ["rubric", "issues"],
     "additionalProperties": False,
 }
+REVIEW_TEMPERATURE = 0.2  # grading should be repeatable; writing stays creative
 
 WORDS_PER_SECOND = 2.6
 
@@ -126,8 +143,9 @@ class Script:
     style: str = "facts"
     language: str = "en"
     cast: list[str] = field(default_factory=list)
-    score: int | None = None           # Script Doctor retention score (0-100)
+    score: int | None = None           # Script Doctor retention score (0-100) of this exact script
     review: list[str] = field(default_factory=list)  # what the Script Doctor found
+    rubric: dict[str, int] = field(default_factory=dict)  # the sub-scores behind ``score`` (0-10 each)
 
     @property
     def narration(self) -> str:
@@ -323,6 +341,7 @@ def normalize(data: dict, subject: str, style: str, language: str) -> Script:
 
     description = re.sub(r"(?<!\w)#\w+", "", strip_emoji(str(data.get("description") or ""))).strip()
     score = data.get("score")
+    rubric = data.get("rubric") if isinstance(data.get("rubric"), dict) else {}
     return Script(
         topic=str(data.get("topic") or subject).strip(),
         title=title,
@@ -337,6 +356,7 @@ def normalize(data: dict, subject: str, style: str, language: str) -> Script:
         cast=cast,
         score=int(score) if isinstance(score, (int, float)) else None,
         review=[str(x) for x in data.get("review") or []][:8],
+        rubric={k: int(v) for k, v in rubric.items() if k in RUBRIC and isinstance(v, (int, float))},
     )
 
 
@@ -363,65 +383,194 @@ def write_script(llm, subject: str, settings: Settings, *, source: str = "niche"
 # --------------------------------------------------------------------------------------------------
 # Script Doctor — a second pass that scores the draft for retention and fixes what is weak.
 # --------------------------------------------------------------------------------------------------
-def review_prompt(script: Script, settings: Settings, rewrite: bool) -> tuple[str, str]:
+_GREETING = re.compile(r"^(hi|hey|hello|welcome|what'?s up|in this video|today (we|i|i'm|we're)|let'?s talk)\b", re.I)
+_CTA = re.compile(r"\b(follow|comment|subscribe|share|like|save|tell me|let me know|which one|would you)\b", re.I)
+_FILLER = re.compile(r"\b(basically|actually|literally|really|very|just|kind of|sort of|you know|honestly)\b", re.I)
+_NUMBER = re.compile(r"\d|\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+                     r"(thir|four|fif|six|seven|eigh|nine)teen|(twen|thir|for|fif|six|seven|eigh|nine)ty|"
+                     r"hundred|thousand|million|billion|trillion|half|twice|dozen|percent)\b", re.I)
+_COMMON = {"about", "after", "again", "because", "before", "being", "could", "every", "first", "their", "there",
+           "these", "thing", "things", "those", "which", "while", "would", "other", "still", "where", "really"}
+FACTUAL_STYLES = {"facts", "listicle", "myth", "news", "explainer", "quiz"}
+
+
+def lint_script(script: Script, settings: Settings) -> list[str]:
+    """Deterministic checks a retention editor would make, so the review never misses the obvious ones."""
+    out: list[str] = []
+    lang = script.language.split("-")[0]
+    english = lang == "en"
+    hook = script.scenes[0].narration if script.scenes else ""
+    opening = re.split(r"(?<=[.!?。！？])\s+", hook.strip(), maxsplit=1)[0]  # the first spoken sentence
+    n_hook = word_count(opening, script.language)
+    if script.style not in CARD_STYLES and script.style not in MULTI_SPEAKER and n_hook > 16:
+        out.append(f"The first spoken sentence is {n_hook} words; a scroll-stopping opening is under 14.")
+    if english and _GREETING.search(hook.strip()):
+        out.append("The hook opens with a greeting or 'in this video' instead of the most interesting line.")
+    target = scene_plan(script.style, settings.target_seconds)[0]
+    n = word_count(script.narration, script.language)
+    if target and abs(n - target) > 0.25 * target:
+        out.append(f"About {n} words for a {settings.target_seconds}-second video (~{target} words fit).")
+    ending = " ".join(sc.narration for sc in script.scenes[-2:])
+    if english and script.scenes and not (_CTA.search(ending) or "?" in ending):
+        out.append("The ending has no call to action (comment, follow or a question).")
+    if lang not in ("zh", "ja"):
+        for k, sc in enumerate(script.scenes, 1):
+            longest = max((len(x.split()) for x in re.split(r"[.!?]+", sc.narration)), default=0)
+            if longest > 28:
+                out.append(f"Scene {k} has a {longest}-word sentence; split it so it can be followed by ear.")
+                break
+    if english:
+        topic = {w.lower() for w in re.findall(r"[A-Za-z]+", script.topic)}
+        counts: dict[str, int] = {}
+        for w in re.findall(r"[A-Za-z']+", script.narration.lower()):
+            if len(w) > 4 and w not in _COMMON and w not in topic:
+                counts[w] = counts.get(w, 0) + 1
+        word, times = max(counts.items(), key=lambda kv: kv[1], default=("", 0))
+        if times >= 4:
+            out.append(f"'{word}' is said {times} times; vary the wording.")
+        fillers = len(_FILLER.findall(script.narration))
+        if fillers > 3:
+            out.append(f"{fillers} filler words (basically, really, just...) slow the pace.")
+        if script.style in FACTUAL_STYLES and not _NUMBER.search(script.narration):
+            out.append("No concrete number anywhere; one precise figure makes facts land harder.")
+    return out
+
+
+def rubric_score(rubric: dict | None) -> int | None:
+    """Weighted 0-100 retention score from 0-10 sub-scores (missing parts count as average)."""
+    if not isinstance(rubric, dict):
+        return None
+    total, seen = 0.0, 0
+    for key, (weight, _) in RUBRIC.items():
+        try:
+            v = max(0.0, min(10.0, float(rubric[key])))
+            seen += 1
+        except (KeyError, TypeError, ValueError):
+            v = 5.0
+        total += weight * v
+    return round(total * 10) if seen else None
+
+
+def _score_of(data: dict) -> tuple[int | None, dict[str, int]]:
+    rubric = data.get("rubric")
+    score = rubric_score(rubric)
+    clean = ({k: max(0, min(10, int(v))) for k, v in rubric.items() if k in RUBRIC and isinstance(v, (int, float))}
+             if isinstance(rubric, dict) else {})
+    if score is None:  # a plain overall score (older prompts, simple models)
+        try:
+            score = max(0, min(100, int(data.get("score"))))
+        except (TypeError, ValueError):
+            score = None
+    return score, clean
+
+
+def review_prompt(script: Script, settings: Settings, rewrite: bool, checks: list[str] | None = None) -> tuple[str, str]:
     words, n_scenes = scene_plan(script.style, settings.target_seconds)
     lang = LANGUAGES.get(script.language, script.language)
-    draft = {k: v for k, v in script.to_dict().items() if k not in ("style", "language", "score", "review")}
+    draft = {k: v for k, v in script.to_dict().items() if k not in ("style", "language", "score", "review", "rubric")}
     system = ("You are a ruthless YouTube Shorts retention editor. You know that viewers decide in 1-2 "
               "seconds and swipe away at any slow moment. You reply with a single JSON object and nothing else.")
+    rubric = "\n".join(f"- {k}: {why}" for k, (_, why) in RUBRIC.items())
+    found = ("Automatic checks already found:\n" + "\n".join(f"- {c}" for c in checks) + "\n") if checks else ""
     task = (f"""Then rewrite it into the strongest version you can. Keep the same subject, format, language ({lang}),
-the same JSON structure and about {words} words in about {n_scenes} scenes. Fix every issue you listed:
-sharpen the hook, cut filler, make vague lines concrete, remove any claim that may not be true, keep the
-payoff for the end, end with a short call to action. Put the rewritten script in "script".
+the same JSON structure and about {words} words in about {n_scenes} scenes. Fix every issue you listed and every
+automatic finding: sharpen the hook, cut filler, make vague lines concrete, remove any claim that may not be true,
+keep the payoff for the end, end with a short call to action. Put the rewritten script in "script".
 Format rules to keep:
-{_format_rules(script.style)}""" if rewrite else
-            'Return only "score" and "issues".')
+{_format_rules(script.style)}""" if rewrite else 'Return only "rubric" and "issues".')
     user = f"""Review this YouTube Short script ({STYLES[script.style]}).
 
 {json.dumps(draft, ensure_ascii=False, indent=1)}
 
-Score it 0-100 for how well it will hold viewers to the end: hook strength in the first 2 seconds (most
-important), curiosity gaps, pacing, specificity, payoff, and accuracy risk. Be strict: 85+ is rare.
+Grade it in "rubric" with a whole number from 0 to 10 for each of:
+{rubric}
+Be strict and calibrated: 5 is an average Short, 8 is better than most viral Shorts, 10 is nearly impossible.
 List the concrete problems in "issues" (max 5, short sentences, most important first).
-{task}"""
+{found}{task}"""
     return system, user
 
 
+def _grade(llm, script: Script, settings: Settings) -> tuple[int | None, dict[str, int], list[str]]:
+    system, user = review_prompt(script, settings, rewrite=False, checks=lint_script(script, settings))
+    data = llm.complete_json(system, user, SCORE_SCHEMA, max_tokens=2000, temperature=REVIEW_TEMPERATURE)
+    score, rubric = _score_of(data)
+    return score, rubric, [str(i).strip() for i in data.get("issues") or [] if str(i).strip()][:5]
+
+
 def review_script(llm, script: Script, settings: Settings) -> Script:
-    """Score the script and (in rewrite mode) replace it with the improved version. Never fails the video:
-    if the review call or its rewrite is unusable, the original script is kept."""
+    """Score the script and (in rewrite mode) replace it with an improved version. The rewrite is graded
+    again and only kept when it scores at least as well as the draft, so the stored score belongs to the
+    script that is actually used (if that second grading fails, the rewrite is used with the draft's score).
+    With SCRIPT_REVIEW_ROUNDS above 1 a script still below SCRIPT_TARGET_SCORE is reviewed again. Never
+    fails the video: any unusable answer keeps what we have."""
     mode = settings.script_review
     if llm is None or mode == "off":
         return script
-    rewrite = mode == "rewrite"
-    system, user = review_prompt(script, settings, rewrite)
-    try:
-        data = llm.complete_json(system, user, REVIEW_SCHEMA if rewrite else SCORE_SCHEMA, max_tokens=5000)
-    except Exception as e:
-        log.warning("Script Doctor skipped: %s", e)
-        return script
-    try:
-        score = max(0, min(100, int(data.get("score"))))
-    except (TypeError, ValueError):
-        score = None
-    issues = [str(i).strip() for i in data.get("issues") or [] if str(i).strip()][:5]
-    result = script
-    if rewrite and isinstance(data.get("script"), dict):
+    if mode == "score":
         try:
-            better = normalize(data["script"], script.topic, script.style, script.language)
-            target = scene_plan(script.style, settings.target_seconds)[0]
-            n = word_count(better.narration, script.language)
-            if 0.5 * target <= n <= 1.7 * target:
-                result = better
-            else:
-                log.warning("Script Doctor rewrite ignored: %d words for a %d-word target", n, target)
-        except ValueError as e:
-            log.warning("Script Doctor rewrite ignored: %s", e)
-    result.score, result.review = score, issues
-    changed = "rewritten" if result is not script else "kept"
-    log.info("Script Doctor: %s/100, %s%s", score if score is not None else "?", changed,
-             f" — {issues[0]}" if issues else "")
-    return result
+            score, rubric, issues = _grade(llm, script, settings)
+        except Exception as e:
+            log.warning("Script Doctor skipped: %s", e)
+            return script
+        script.score, script.rubric, script.review = score, rubric, _with_checks(issues, script, settings)
+        log.info("Script Doctor: %s/100%s", score if score is not None else "?", f" — {issues[0]}" if issues else "")
+        return script
+
+    best, best_score, best_rubric, best_issues = script, None, {}, []
+    target = scene_plan(script.style, settings.target_seconds)[0]
+    for round_no in range(1, max(1, settings.script_review_rounds) + 1):
+        system, user = review_prompt(best, settings, rewrite=True, checks=lint_script(best, settings))
+        try:
+            data = llm.complete_json(system, user, REVIEW_SCHEMA, max_tokens=5000, temperature=REVIEW_TEMPERATURE)
+        except Exception as e:
+            log.warning("Script Doctor skipped: %s", e)
+            break
+        score, rubric = _score_of(data)
+        issues = [str(i).strip() for i in data.get("issues") or [] if str(i).strip()][:5]
+        if round_no == 1 or best_score is None:
+            best_score, best_rubric, best_issues = score, rubric, issues
+        better = None
+        if isinstance(data.get("script"), dict):
+            try:
+                cand = normalize(data["script"], script.topic, script.style, script.language)
+                n = word_count(cand.narration, script.language)
+                if 0.5 * target <= n <= 1.7 * target:
+                    better = cand
+                else:
+                    log.warning("Script Doctor rewrite ignored: %d words for a %d-word target", n, target)
+            except ValueError as e:
+                log.warning("Script Doctor rewrite ignored: %s", e)
+        if better is None:
+            break
+        try:
+            new_score, new_rubric, new_issues = _grade(llm, better, settings)
+        except Exception as e:  # can't verify: trust the editor's rewrite, keep the draft's score
+            log.warning("Script Doctor could not grade its rewrite (%s); using it", e)
+            best = better
+            break
+        if new_score is not None and best_score is not None and new_score < best_score:
+            log.info("Script Doctor rewrite scored %d, below the draft's %d: kept the draft", new_score, best_score)
+            break
+        best, best_score = better, new_score if new_score is not None else best_score
+        best_rubric, best_issues = new_rubric, new_issues  # never show the draft's sub-scores for the rewrite
+        if best_score is not None and best_score >= settings.script_target_score:
+            break
+    best.score, best.rubric = best_score, best_rubric
+    best.review = _with_checks(best_issues, best, settings)
+    changed = "rewritten" if best is not script else "kept"
+    log.info("Script Doctor: %s/100, %s%s", best_score if best_score is not None else "?", changed,
+             f" — {best.review[0]}" if best.review else "")
+    return best
+
+
+def _with_checks(issues: list[str], script: Script, settings: Settings) -> list[str]:
+    """The editor's remaining notes, then up to three automatic findings it didn't already mention."""
+    out = list(issues)
+    for c in lint_script(script, settings)[:3]:
+        if len(out) >= 8:
+            break
+        out.append(f"Check: {c}")
+    return out
 
 
 # --------------------------------------------------------------------------------------------------
@@ -429,7 +578,7 @@ def review_script(llm, script: Script, settings: Settings) -> Script:
 # --------------------------------------------------------------------------------------------------
 def translate_script(llm, script: Script, language: str) -> Script:
     lang = LANGUAGES.get(language, language)
-    src = {k: v for k, v in script.to_dict().items() if k not in ("style", "language", "score", "review")}
+    src = {k: v for k, v in script.to_dict().items() if k not in ("style", "language", "score", "review", "rubric")}
     system = ("You are a native-level translator and YouTube Shorts adapter. You reply with a single JSON "
               "object and nothing else.")
     user = f"""Adapt this YouTube Short into {lang}.
@@ -443,7 +592,7 @@ Rules:
 - Keep search_query and image_prompt unchanged (English).
 - Hashtags and tags in {lang} where people search in {lang}, otherwise English.
 Return the same JSON structure."""
-    data = llm.complete_json(system, user, SCRIPT_SCHEMA)
+    data = llm.complete_json(system, user, SCRIPT_SCHEMA, temperature=0.4)  # faithful, not creative
     out = normalize(data, script.topic, script.style, language)
     if len(out.scenes) != len(script.scenes):
         raise ValueError(f"translation to {language} has {len(out.scenes)} scenes, expected {len(script.scenes)}")

@@ -34,16 +34,21 @@ También es un pequeño estudio: puedes editar cualquier línea del guion antes 
 
 ## Características
 
-- **Cualquier modelo de IA:** OpenAI GPT, Anthropic Claude, Google Gemini, DeepSeek, Mistral, xAI Grok, Groq, OpenRouter, Together AI, Ollama y LM Studio (locales y gratuitos), o cualquier API compatible con OpenAI. Si defines proveedores de respaldo en `LLM_FALLBACKS`, se prueban en orden cuando falla el principal.
-- **Script Doctor:** una segunda pasada de IA puntúa cada guion de 0 a 100 según su capacidad para retener a los espectadores, enumera sus puntos débiles y lo reescribe.
+- **Cualquier modelo de IA:** OpenAI GPT, Anthropic Claude, Google Gemini, DeepSeek, Mistral, xAI Grok, Groq, OpenRouter, Together AI, Ollama y LM Studio (locales y gratuitos), o cualquier API compatible con OpenAI. Si defines proveedores de respaldo en `LLM_FALLBACKS`, se prueban en orden cuando falla el principal. En los proveedores que lo admiten (OpenAI, Gemini, OpenRouter, Ollama, LM Studio, Claude), las respuestas siguen un esquema JSON estricto.
+- **Script Doctor:** una segunda pasada de IA califica cada guion en seis aspectos (gancho, curiosidad, ritmo, concreción, desenlace y precisión), enumera sus puntos débiles y lo reescribe. La nueva versión se vuelve a calificar y solo se conserva si puntúa al menos igual, así que la puntuación de retención (de 0 a 100) siempre corresponde al guion que recibes. Unas comprobaciones automáticas (un gancho demasiado largo, muletillas, ninguna llamada a la acción, ningún dato concreto) alimentan la revisión.
 - **322 voces neuronales gratuitas en 75 idiomas** con sincronización a nivel de palabra, sin necesidad de clave. Dos voces para diálogos e historias de chat.
-- **Material visual para cada frase:** videos de stock de Pexels o Pixabay (claves gratuitas), imágenes generadas con IA o tu propia carpeta de medios.
-- **Subtítulos animados palabra por palabra** en seis estilos, para escritura latina, índica, árabe, tailandesa y CJK.
+- **Material visual para cada frase:** videos de stock de Pexels o Pixabay (claves gratuitas), imágenes generadas con IA o tu propia carpeta de medios. Cada candidato se puntúa según lo bien que su propia descripción encaja con la escena.
+- **Ritmo rápido:** las escenas de más de 4,5 s se dividen en varias tomas con material distinto, y cada corte cae en una pausa natural entre palabras (`MAX_SHOT_SECONDS`).
+- **Subtítulos animados palabra por palabra** en seis estilos, para escritura latina, índica, árabe, tailandesa y CJK. Con voces que no dan la marca de tiempo de cada palabra, el final de cada frase se fija en las pausas reales del audio, así que los subtítulos siguen sincronizados.
+- **Audio con calidad de emisión:** una limpieza suave de la voz (corte de graves, de-esser, compresión) y una normalización de sonoridad en dos pasadas que mide la mezcla y aplica una ganancia constante: −14 LUFS sin efecto de bombeo.
+- **Portada:** el fotograma más nítido y mejor expuesto de los primeros segundos, nunca uno a mitad de una transición.
 - Salida en **9:16, 16:9, 1:1 o 4:5**, renderizada con ffmpeg. No necesitas GPU.
 - **Sube a YouTube** o programa cada video en tu siguiente franja horaria libre, con la declaración de contenido generado con IA ya activada.
 - **Un video, muchos idiomas:** `--also-lang es,hi` crea copias traducidas que reutilizan el mismo material visual.
-- **App web Studio** en tu equipo: redacta, edita, renderiza, sigue el progreso en tiempo real y explora la biblioteca.
+- **App web Studio** en tu equipo: redacta, edita, renderiza y explora la biblioteca. El progreso llega al instante, con el porcentaje y el tiempo restante calculados a partir de tu propio equipo, y el botón **Cancel** detiene un trabajo en curso. Si lo ejecutas en un servidor, `STUDIO_PASSWORD` lo protege con contraseña.
+- Una línea de progreso en vivo en la terminal y una caché de voz: al volver a renderizar un guion editado, solo se locutan las líneas que cambiaron.
 - **Servidor MCP:** pídele a Claude Desktop, Claude Code o Cursor que cree videos, extraiga clips o suba videos.
+- **Aprende de tu canal** (opcional, `LEARN_FROM_STATS`): cuando 8 o más videos tienen estadísticas, el formato de cada video nuevo se elige por muestreo de Thompson a partir de tus vistas reales, y `stats` te dice si la puntuación de retención predice de verdad tus vistas (correlación de Spearman) y qué horas de publicación funcionaron mejor.
 
 ## Formatos
 
@@ -79,9 +84,10 @@ Después copia `.env.example` a `.env`, añade una clave de IA (o ejecuta Ollama
 ```bash
 pip install faster-whisper yt-dlp
 purffle-shorts clip podcast.mp4 --count 3 --no-upload
+purffle-shorts clip interview.mp4 --crop face        # sigue el rostro de quien habla (pip install opencv-python-headless)
 ```
 
-El video se transcribe, la IA elige los momentos que funcionan por sí solos y cada uno se convierte en un clip vertical con subtítulos. Funciona como Opus Clip, pero en tu propio equipo y sin tarifas por minuto. Extrae clips solo de videos que sean tuyos o que tengas permiso para reutilizar.
+El video se transcribe, la IA elige los momentos que funcionan por sí solos y cada uno se convierte en un clip vertical con subtítulos. Funciona como Opus Clip, pero en tu propio equipo y sin tarifas por minuto. La transcripción usa `WHISPER_MODEL` (`auto` elige `large-v3-turbo` en una GPU NVIDIA y `small` en la CPU) con detección de voz, para que la música y los silencios no se conviertan en palabras inventadas. Con `--crop face`, el rostro de quien habla se busca dos veces por segundo y se mantiene en el encuadre, que solo cambia cuando cambia el plano. Extrae clips solo de videos que sean tuyos o que tengas permiso para reutilizar.
 
 ## Úsalo desde Claude y otras apps de IA (MCP)
 
@@ -107,7 +113,7 @@ Luego pide, por ejemplo: "crea una historia de texto de 30 segundos sobre un alt
 
 **¿Puede publicar en TikTok o Instagram?** Solo sube a YouTube. Cada video es un MP4 estándar con imagen de portada y subtítulos, así que puedes publicar ese mismo archivo en TikTok y Reels por tu cuenta (tras subirlo a YouTube el MP4 se borra, salvo que pongas `KEEP_VIDEOS=true`).
 
-**¿Necesito una GPU?** No. El renderizado usa ffmpeg en la CPU.
+**¿Necesito una GPU?** No. El renderizado usa ffmpeg en la CPU. Si tienes una GPU NVIDIA, la transcripción de `clip` la aprovecha.
 
 **¿Está permitido subir videos de forma automatizada?** Usa la YouTube Data API oficial, iniciando sesión con tu propia cuenta de Google, y activa la declaración de contenido sintético de YouTube. Revisa tus videos y respeta las políticas de YouTube.
 

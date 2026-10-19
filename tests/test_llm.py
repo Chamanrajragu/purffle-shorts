@@ -53,6 +53,52 @@ def test_openai_payload_for_chat_model(monkeypatch):
     assert sess.calls[0]["headers"]["Authorization"] == "Bearer k"
 
 
+def test_openai_uses_strict_json_schema_when_given_one(monkeypatch):
+    sess = FakeSession(_ok())
+    monkeypatch.setattr(L, "http", lambda: sess)
+    p = L.OpenAICompatible(L.PRESETS["openai"], "gpt-4o-mini", "k", L.PRESETS["openai"].base_url)
+    schema = {"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"],
+              "additionalProperties": False}
+    p.complete("sys", "user", schema=schema)
+    fmt = sess.calls[0]["json"]["response_format"]
+    assert fmt["type"] == "json_schema" and fmt["json_schema"]["strict"] is True
+    assert fmt["json_schema"]["schema"] == schema
+
+
+def test_strict_schema_steps_down_to_json_mode_then_prompt(monkeypatch):
+    calls = []
+
+    class S:
+        def post(self, url, json=None, headers=None, timeout=None):
+            fmt = (json.get("response_format") or {}).get("type")
+            calls.append(fmt)
+            if fmt == "json_schema":
+                return FakeResp(400, {"error": "Invalid parameter: 'response_format' of type 'json_schema'"})
+            if fmt == "json_object":
+                return FakeResp(400, {"error": "response_format is not supported by this model"})
+            return _ok()
+    monkeypatch.setattr(L, "http", lambda: S())
+    p = L.OpenAICompatible(L.PRESETS["ollama"], "m", "", "http://x/v1")
+    assert p.complete("s", "u", schema={"type": "object"}) == '{"x": 1}'
+    assert calls == ["json_schema", "json_object", None]
+    p.complete("s", "u", schema={"type": "object"})
+    assert calls[-1] is None  # remembered for the next calls
+
+
+def test_a_plain_bad_request_in_schema_mode_retries_without_it(monkeypatch):
+    calls = []
+
+    class S:
+        def post(self, url, json=None, headers=None, timeout=None):
+            fmt = (json.get("response_format") or {}).get("type")
+            calls.append(fmt)
+            return FakeResp(400, {"error": {"message": "Invalid argument"}}) if fmt == "json_schema" else _ok()
+    monkeypatch.setattr(L, "http", lambda: S())
+    p = L.OpenAICompatible(L.PRESETS["gemini"], "m", "k", "https://x/v1")
+    assert p.complete("s", "u", schema={"type": "object"}) == '{"x": 1}'
+    assert calls == ["json_schema", "json_object"]
+
+
 def test_reasoning_models_skip_temperature(monkeypatch):
     sess = FakeSession(_ok())
     monkeypatch.setattr(L, "http", lambda: sess)
@@ -132,6 +178,33 @@ def test_anthropic_opus_uses_structured_output_and_fallbacks(monkeypatch):
     assert kw["betas"] == ["server-side-fallback-2026-07-01"]
     assert kw["output_config"]["format"]["type"] == "json_schema"
     assert "temperature" not in kw and kw["system"] == "sys"
+
+
+def test_anthropic_default_is_opus_5_5_at_high_effort(monkeypatch):
+    captured = []
+    _fake_anthropic(monkeypatch, captured)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    p = L.build_provider("anthropic", Settings())
+    assert p.model == "claude-opus-5-5"
+    p.complete("s", "u", schema={"type": "object"})
+    kind, kw = captured[0]
+    assert kind == "beta" and kw["fallbacks"] == "default" and kw["output_config"]["effort"] == "high"
+    L.AnthropicProvider("claude-opus-5-5", "k", effort="max").complete("s", "u", schema={})
+    assert captured[1][1]["output_config"] == {"effort": "max"}  # ANTHROPIC_EFFORT wins
+
+
+def test_anthropic_sonnet_5_5_gets_fallbacks_and_cutoffs_are_errors(monkeypatch):
+    captured = []
+    _fake_anthropic(monkeypatch, captured)
+    L.AnthropicProvider("claude-sonnet-5-5", "k").complete("s", "u", schema={})
+    assert captured[0][0] == "beta" and "effort" not in captured[0][1].get("output_config", {})
+    import anthropic
+    p = L.AnthropicProvider("claude-sonnet-5-5", "k")
+    cut = types.SimpleNamespace(stop_reason="max_tokens", content=[types.SimpleNamespace(type="text", text="{")])
+    p.client.beta.messages.create = lambda **kw: cut
+    with pytest.raises(L.LLMError, match="cut off"):
+        p.complete("s", "u", schema={})
+    assert anthropic  # the fake module is the one in use
 
 
 def test_anthropic_other_models_use_plain_messages(monkeypatch):

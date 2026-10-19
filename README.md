@@ -65,7 +65,8 @@ It is made for **content creators**, **faceless YouTube channels**, **educators*
 
 **AI scriptwriting**
 - One structured LLM call returns the whole Short: hook, scenes, a footage search and an image prompt per scene, title, description, hashtags, tags and YouTube category.
-- **Script Doctor**: a second AI pass scores the draft 0–100 for retention (hook, pacing, payoff, accuracy risk), lists what is weak and rewrites it. The score is stored with every video.
+- **Script Doctor**: a second AI pass grades the draft on six points (hook, curiosity, pacing, specificity, payoff, accuracy), lists what is weak and rewrites it. The rewrite is graded again and only kept if it scores at least as well, so the 0–100 retention score always belongs to the script you actually get. Automatic checks (hook length, filler words, missing call to action, no concrete numbers) feed the review.
+- Strict JSON-schema replies on providers that support them (OpenAI, Gemini, OpenRouter, Ollama, LM Studio, Claude), with an automatic step down for the ones that don't.
 - **12 providers**: OpenAI, Anthropic Claude, Google Gemini, Groq, OpenRouter, DeepSeek, Mistral, Together AI, xAI Grok, Ollama, LM Studio, or any OpenAI-compatible URL. List backups in `LLM_FALLBACKS` and they are tried in order if the main one fails.
 - **11 formats**: facts, story, listicle, myth-busting, quiz, explainer, motivational, news, **two-voice dialogue**, **text-message story** and **Reddit-style story** (a post card while the title is read, then the story with captions).
 - Draft first and edit any line in the Studio, or write a script yourself and render it with `--script`, with no LLM call.
@@ -73,7 +74,7 @@ It is made for **content creators**, **faceless YouTube channels**, **educators*
 **Sources**
 - Your niches, Google Trends, Wikipedia "On this day", Reddit TIL, **RSS feeds**, your own list, **any web page or Reddit post** (`--url`) or **document** (`--from-file`).
 - **Content planner**: the AI brainstorms a batch of specific, non-repeating ideas into a queue that the autopilot uses first.
-- **Clip long videos**: transcribe a podcast, interview or talk, let the AI pick the moments that stand alone, and get captioned vertical clips.
+- **Clip long videos**: transcribe a podcast, interview or talk, let the AI pick the moments that stand alone, and get captioned vertical clips. `--crop face` keeps the speaker's face in frame, with one steady framing per camera shot.
 
 **Voiceover**
 - 320+ free Microsoft neural voices in 75 languages, with word-level timestamps. No key needed.
@@ -82,7 +83,8 @@ It is made for **content creators**, **faceless YouTube channels**, **educators*
 - Also OpenAI TTS, ElevenLabs, Kokoro-82M, Coqui and the operating-system voice. Falls back to the free voice if a paid engine fails.
 
 **Footage & images**
-- A separate stock-footage search for every scene (Pexels, Pixabay), portrait clips preferred, smart 9:16 crop, never reused across videos.
+- A separate stock-footage search for every scene (Pexels, Pixabay). Each candidate is scored by how well its own description matches the scene, the search engine's ranking, shape and length; portrait clips preferred, never reused across videos.
+- **Fast pacing**: scenes longer than 4.5 s are cut into several shots with different footage, each cut placed on a natural pause between words.
 - AI images per scene from OpenAI (gpt-image-1 / DALL·E 3) or Pollinations, or your own `media/` folder.
 - Ken Burns motion on photos, colour grades, transitions.
 
@@ -90,8 +92,11 @@ It is made for **content creators**, **faceless YouTube channels**, **educators*
 - Captions appear exactly when each word is spoken, with the current word highlighted. 6 styles; Latin, Indic, Arabic, Thai and CJK scripts.
 - Dialogues get speaker name tags and a colour per speaker; chat stories get an animated phone screen with typing indicators; Reddit-style stories open on a post card (community, poster, title, votes).
 - **9:16, 16:9, 1:1 or 4:5** output (`--aspect`), with captions and overlays sized for each shape.
-- Hook title, watermark, progress bar, end call-to-action, background music that ducks under the voice, loudness normalised to −14 LUFS.
-- Plain ffmpeg: each scene is prepared as a short segment, then one final encode joins them and adds everything above. No MoviePy, no ImageMagick, no GPU.
+- Hook title, watermark, progress bar, end call-to-action, background music that ducks under the voice.
+- **Broadcast-grade audio**: gentle voice clean-up (rumble cut, de-esser, compression), then two-pass loudness normalisation that measures the mix and applies one steady gain, landing on −14 LUFS without pumping.
+- Voices without word timestamps get their phrase ends pinned to the real pauses in the audio, so captions stay in sync even without an aligner.
+- The cover image is the sharpest, best-exposed frame of the opening seconds, never a frame mid-transition.
+- Plain ffmpeg: each shot is prepared as a short segment, the soundtrack is mixed and normalised in its own pass, then one final encode joins them and adds everything above. No MoviePy, no ImageMagick, no GPU.
 
 **Publishing**
 - Uploads to YouTube, or schedules each video into your next free time slot.
@@ -100,9 +105,10 @@ It is made for **content creators**, **faceless YouTube channels**, **educators*
 
 **Workflow**
 - Autopilot loop, one-off videos, bulk batches with parallel workers, several channels from separate settings files.
-- **Studio web app**: create, draft and edit, watch every stage live, browse and play the library, plan ideas, clip videos, read channel stats.
+- **Studio web app**: create, draft and edit, watch every stage live (pushed instantly, with a percentage and a time-left estimate learned from your machine), cancel a running job, browse and play the library, plan ideas, clip videos, read channel stats. `STUDIO_PASSWORD` protects it when it runs on a server.
+- A live progress line in the terminal, and a voice cache so re-rendering an edited script only voices the lines that changed.
 - **MCP server**: ask Claude Desktop, Claude Code or Cursor to make, clip or upload videos.
-- **Learns from your channel** (opt-in): view counts of your uploads show the AI what works for your audience.
+- **Learns from your channel** (opt-in): view counts of your uploads show the AI what works for your audience, the format of each new video is chosen by Thompson sampling over your own results, and `stats` tells you whether the retention score actually predicts your views (Spearman correlation) and which publish hours did best.
 - Discord / Slack / webhook notifications, a `doctor` self-check, SQLite history, Docker, and CI that renders real videos on every pull request.
 
 ---
@@ -218,11 +224,11 @@ flowchart LR
 |------|-------------|
 | 1. **Topic** | Queued ideas first, then your niches, today's Google Trends, Wikipedia "On this day", Reddit TIL (best-effort, since Reddit rate-limits anonymous requests) or `topics.txt`, skipping anything already made and news about deaths, violence or elections |
 | 2. **Script** | The LLM writes a hook-first script split into scenes, each with its own stock-footage query and AI-image prompt, plus title, description, hashtags, tags and category, all in one JSON reply. With `LEARN_FROM_STATS`, your best and worst performers are part of the prompt |
-| 3. **Review** | The Script Doctor scores it for retention and rewrites weak lines (`SCRIPT_REVIEW=rewrite`, the default). A rewrite that misses the target length is ignored, and a failed review never fails the video |
-| 4. **Voice** | Neural TTS speaks the script and returns per-word timestamps (or they are aligned/estimated). Dialogues and chats are voiced line by line with two voices |
-| 5. **Footage** | Each scene gets its own clip: Pexels / Pixabay video (portrait preferred), photos with Ken Burns motion, your own `media/` folder, or AI images, with an animated gradient as the last resort |
+| 3. **Review** | The Script Doctor grades it on a six-part rubric, rewrites weak lines and grades the rewrite again, keeping whichever scores higher (`SCRIPT_REVIEW=rewrite`, the default). A rewrite that misses the target length is ignored, and a failed review never fails the video |
+| 4. **Voice** | Neural TTS speaks the script and returns per-word timestamps (or they are aligned with Whisper, or pinned to the pauses in the audio). Dialogues and chats are voiced line by line with two voices; lines spoken before come from the voice cache |
+| 5. **Footage** | Each shot gets its own clip, chosen for how well its description matches the scene: Pexels / Pixabay video (portrait preferred), photos with Ken Burns motion, your own `media/` folder, or AI images, with an animated gradient as the last resort. Long scenes are cut into several shots |
 | 6. **Captions** | 2–3-word captions appear exactly when spoken, with the current word highlighted; chat stories show messages popping in on a phone screen instead, and Reddit-style stories open on a post card |
-| 7. **Render** | Scenes are cover-cropped to the output shape, colour-graded and joined with transitions; hook title, watermark, progress bar, end CTA, ducked music and −14 LUFS loudness are added in one final ffmpeg encode |
+| 7. **Render** | Shots are cover-cropped to the output shape, colour-graded and joined (hard cuts inside a scene, transitions between scenes); hook title, watermark, progress bar and end CTA are added in one final ffmpeg encode, with a soundtrack normalised to −14 LUFS in two passes. The cover is the best frame of the hook |
 | 8. **Publish** | Uploaded now, or scheduled into your next free time slot, with the synthetic-media disclosure set; queued automatically when the daily quota is used up |
 
 ---
@@ -318,10 +324,11 @@ Scripts from the LLM are fiction for `chat` and `reddit` (the prompt forbids rea
 pip install faster-whisper                          # free, local transcription (or set OPENAI_API_KEY)
 purffle-shorts clip podcast.mp4 --count 3           # fill the frame
 purffle-shorts clip talk.mp4 --count 5 --crop blur  # whole picture over a blurred copy
+purffle-shorts clip interview.mp4 --crop face       # follow the speaker (pip install opencv-python-headless)
 purffle-shorts clip "https://…" --count 3           # URLs need: pip install yt-dlp
 ```
 
-It works like Opus Clip or Vidyo.ai, but locally and without per-minute fees. The video is transcribed with word timings, and the LLM reads the timestamped transcript and picks moments of 20–58 s (`--min-seconds`, `--max-seconds`) that open with a hook and end on a complete thought, with a title, hashtags and a retention score for each. Each clip is cut on sentence boundaries, cropped to 9:16, captioned word by word with a hook title, and loudness-normalised. Without an LLM it still works, with moments spread evenly over the video instead. Clips upload like any other video when `UPLOAD=true`; add `--no-upload` to only cut them. Only clip videos you own or have permission to reuse.
+It works like Opus Clip or Vidyo.ai, but locally and without per-minute fees. The video is transcribed with word timings, and the LLM reads the timestamped transcript and picks moments of 20–58 s (`--min-seconds`, `--max-seconds`) that open with a hook and end on a complete thought, with a title, hashtags and a retention score for each. Each clip is cut on sentence boundaries, cropped to 9:16, captioned word by word with a hook title, and loudness-normalised. Without an LLM it still works, with moments spread evenly over the video instead. Transcription uses `WHISPER_MODEL` (`auto` picks `large-v3-turbo` on an NVIDIA GPU and `small` on a CPU) with voice-activity detection, so music and silence don't turn into invented words. `--crop face` finds the speaker's face twice a second (OpenCV's YuNet detector, a 230 KB model downloaded once) and keeps it in frame, switching framing only when the camera cuts. Clips upload like any other video when `UPLOAD=true`; add `--no-upload` to only cut them. Only clip videos you own or have permission to reuse.
 
 ---
 
@@ -342,6 +349,8 @@ YOUTUBE_API_KEY=...        # optional: reads public stats without asking for mor
 ```
 
 `purffle-shorts stats` (and the Studio's Channel page) reads view, like and comment counts of the videos PurffleShorts uploaded: one API unit per 50 videos. With `LEARN_FROM_STATS=true` the autopilot refreshes them twice a day and shows the LLM your best and worst performers (public for 48 hours or more) when it writes and plans. Without `YOUTUBE_API_KEY`, run `auth` once more to grant read access.
+
+Once 8 or more videos have stats, `SCRIPT_STYLE=auto` stops picking formats at random: each format's typical view count gets a statistical estimate that tightens as its videos come in, and the next format is drawn by Thompson sampling. Formats that work for your audience are chosen more often, and untried ones still get a fair chance. `stats` also checks the predictions against reality: the Spearman correlation between the Script Doctor's retention score and real views, median views per format, and the publish hours that did best.
 
 ---
 
@@ -554,14 +563,14 @@ It uses the official YouTube Data API with your own Google sign-in, and sets You
 
 | Component | Technology |
 |---|---|
-| Script | Any LLM: OpenAI-compatible HTTP, plus the Anthropic SDK with structured outputs; a review pass and translation on the same providers |
-| Voice | edge-tts, OpenAI, ElevenLabs, Kokoro, Coqui, OS voices; multi-speaker joining; optional faster-whisper alignment |
-| Video | ffmpeg (xfade, zoompan, sidechaincompress, loudnorm, libass), Pillow caption, chat and post-card renderers |
+| Script | Any LLM: OpenAI-compatible HTTP (strict JSON schema where supported), plus the Anthropic SDK with structured outputs; a rubric-graded review pass and translation on the same providers |
+| Voice | edge-tts, OpenAI, ElevenLabs, Kokoro, Coqui, OS voices; multi-speaker joining; faster-whisper alignment or pause-anchored timing; a line cache |
+| Video | ffmpeg (xfade, zoompan, sidechaincompress, two-pass loudnorm, silencedetect, libass, `-progress`), Pillow caption, chat and post-card renderers drawn on several threads; optional OpenCV face framing for clips |
 | Media | Pexels, Pixabay, local files, OpenAI Images, Pollinations; yt-dlp for clipping from URLs |
 | Upload | YouTube Data API v3, OAuth 2.0, resumable uploads, view statistics |
-| Studio | Python standard-library HTTP server, vanilla JS/CSS, no build step |
+| Studio | Python standard-library HTTP server with Server-Sent Events, vanilla JS/CSS, no build step |
 | Agents | MCP over stdio (standard library, no SDK) |
-| State | SQLite history (videos, topics, clips, uploads, schedule, idea queue, stats), migrated automatically |
+| State | SQLite history in WAL mode (videos, topics, clips, uploads, schedule, idea queue, stats, stage timings), migrated automatically |
 
 ---
 
@@ -615,6 +624,9 @@ purffle-shorts/
 | Videos stay `queued` | Your `YT_DAILY_LIMIT` or one of YouTube's limits was reached. Autopilot uploads them after midnight Pacific; otherwise run `upload --pending` after the reset (or raise `YT_DAILY_LIMIT`) |
 | A video failed and the log is too short | Run with `-v` for full tracebacks (also written to `data/logs/purffle.log`) |
 | Wrong-looking non-Latin captions | Install an ffmpeg with libass (Homebrew and apt builds include it); `doctor` shows whether yours has it |
+| Too many cuts, or too few | `MAX_SHOT_SECONDS` sets the longest a single shot may last (default 4.5; `0` = one shot per scene) |
+| A job is taking too long in the Studio | Press **Cancel** on its card: ffmpeg stops at once, the rest at the next stage, and nothing half-made is kept |
+| The voice sounds too processed | `VOICE_ENHANCE=false` turns off the clean-up (rumble cut, de-esser, compression) |
 
 ---
 

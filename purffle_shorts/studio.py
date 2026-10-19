@@ -10,9 +10,12 @@ so other websites can't drive it from your browser.
 
 from __future__ import annotations
 
+import base64
+import hmac
 import json
 import logging
 import mimetypes
+import os
 import queue
 import re
 import secrets
@@ -51,11 +54,18 @@ class Job:
     created: float = field(default_factory=time.time)
     started: float | None = None
     finished: float | None = None
+    eta_fn: object = field(default=None, repr=False)   # the running Studio's eta(), while it runs
 
     def public(self, full_log: bool = False) -> dict:
+        eta = None
+        if self.status == "running" and callable(self.eta_fn):
+            try:
+                eta = self.eta_fn()
+            except Exception:
+                eta = None
         return {"id": self.id, "kind": self.kind, "label": self.label, "status": self.status, "stage": self.stage,
                 "pct": self.pct, "message": self.message, "result": self.result, "created": self.created,
-                "started": self.started, "finished": self.finished,
+                "started": self.started, "finished": self.finished, "eta": eta,
                 "log": self.log if full_log else self.log[-60:]}
 
 
@@ -75,6 +85,7 @@ class _JobLog(logging.Handler):
         if record.threadName == "studio-worker" or record.threadName.startswith("ThreadPoolExecutor"):
             job.log.append(self.format(record))
             del job.log[:-400]
+            self.studio.changed()
 
 
 def _choice(value, allowed, default=None):
@@ -93,8 +104,23 @@ class StudioServer:
         self._next = 1
         self._lock = threading.Lock()
         self._voices: dict[str, list] = {}
+        self.version = 0                       # bumped on every job change; the event stream waits on it
+        self._changed = threading.Condition()
         logging.getLogger().addHandler(_JobLog(self))
         threading.Thread(target=self._worker, name="studio-worker", daemon=True).start()
+
+    def changed(self) -> None:
+        with self._changed:
+            self.version += 1
+            self._changed.notify_all()
+
+    def wait_change(self, seen: int, timeout: float) -> int:
+        with self._changed:
+            self._changed.wait_for(lambda: self.version != seen, timeout=timeout)
+            return self.version
+
+    def jobs_public(self) -> list[dict]:
+        return [j.public() for j in sorted(self.jobs.values(), key=lambda j: j.id, reverse=True)[:40]]
 
     # ------------------------------------------------------------------ jobs
     def submit(self, kind: str, params: dict, label: str = "") -> Job:
@@ -106,12 +132,24 @@ class StudioServer:
                 if self.jobs[old].status not in ("queued", "running"):
                     del self.jobs[old]
         self.queue.put(job)
+        self.changed()
         return job
 
     def cancel(self, jid: int) -> bool:
+        """Cancel a queued job, or stop the running one (its ffmpeg is stopped at once, the rest at the next
+        stage)."""
+        from . import ffmpeg
+        from .utils import CANCEL
         job = self.jobs.get(jid)
         if job and job.status == "queued":
             job.status, job.finished = "cancelled", time.time()
+            self.changed()
+            return True
+        if job and job.status == "running" and job is self.current:
+            CANCEL.set()
+            ffmpeg.kill_all()
+            job.message = "cancelling…"
+            self.changed()
             return True
         return False
 
@@ -119,6 +157,7 @@ class StudioServer:
         def cb(stage: str, pct: int, message: str) -> None:
             job.stage, job.pct = stage, max(job.pct, pct) if stage != "done" else 100
             job.message = message or job.message
+            self.changed()
         return cb
 
     def overrides(self, p: dict) -> Settings:
@@ -159,11 +198,14 @@ class StudioServer:
 
     def _worker(self) -> None:
         from .pipeline import Studio
+        from .utils import CANCEL, Cancelled
         while True:
             job = self.queue.get()
             if job.status == "cancelled":
                 continue
+            CANCEL.clear()
             self.current, job.status, job.started = job, "running", time.time()
+            self.changed()
             p = job.params
             try:
                 if job.kind == "upload":
@@ -177,16 +219,21 @@ class StudioServer:
                 else:
                     s = self.overrides(p)
                     studio = Studio(s, progress=self._progress(job))
+                    job.eta_fn = studio.eta
                     ok = self._run(job, studio, s, p)
                 job.status = "done" if ok else "failed"
+            except Cancelled:
+                job.status, job.message = "cancelled", "cancelled while running"
             except Exception as e:
                 job.status, job.result = "failed", {"error": str(e)}
                 log.exception("Studio job %d failed", job.id)
             finally:
-                job.finished = time.time()
+                job.finished, job.eta_fn = time.time(), None
                 if job.status == "done":
                     job.pct = 100
                 self.current = None
+                CANCEL.clear()
+                self.changed()
 
     def _run(self, job: Job, studio, s: Settings, p: dict) -> bool:
         from .script import script_from_data
@@ -319,6 +366,7 @@ class StudioServer:
                 "visuals": ["pexels", "pixabay", "local", "pollinations", "openai-images"]}
 
     def channel(self) -> dict:
+        from .analytics import calibration
         rows = [r for r in self.studio.history.recent(1000) if r.get("views") is not None]
         by_style: dict[str, list[int]] = {}
         for r in rows:
@@ -328,7 +376,8 @@ class StudioServer:
                             "youtube_id": r["youtube_id"]} for r in sorted(rows, key=lambda r: -r["views"])[:100]],
                 "by_style": sorted(({"style": k, "videos": len(v), "avg_views": round(sum(v) / len(v))}
                                     for k, v in by_style.items()), key=lambda x: -x["avg_views"]),
-                "synced": max((r.get("stats_at") or "" for r in rows), default="")}
+                "synced": max((r.get("stats_at") or "" for r in rows), default=""),
+                "calibration": calibration(self.studio.history)}
 
 
 def _result(r) -> dict:
@@ -337,14 +386,64 @@ def _result(r) -> dict:
             "variants": [_result(v) for v in getattr(r, "variants", [])]}
 
 
-def _handler(app: StudioServer, bound_host: str):
+def _handler(app: StudioServer, bound_host: str, password: str | None = None):
     loopback = bound_host in LOCAL_HOSTS
+    password = os.getenv("STUDIO_PASSWORD", "") if password is None else password
 
     class H(BaseHTTPRequestHandler):
         server_version = f"PurffleStudio/{__version__}"
 
         def log_message(self, fmt, *args):  # keep the console for pipeline logs
             pass
+
+        def _auth_ok(self) -> bool:
+            """With STUDIO_PASSWORD set (for a Studio on a server), every request needs it (HTTP Basic)."""
+            if not password:
+                return True
+            scheme, _, value = (self.headers.get("Authorization") or "").partition(" ")
+            if scheme.lower() != "basic":
+                return False
+            try:
+                _, _, given = base64.b64decode(value).decode("utf-8").partition(":")
+            except (ValueError, UnicodeDecodeError):
+                return False
+            return hmac.compare_digest(given.encode(), password.encode())
+
+        def _gate(self) -> bool:
+            """True when the request may go on; otherwise the refusal has been sent."""
+            if not self._host_ok():
+                self._send(421, b"wrong host", "text/plain")
+                return False
+            if not self._auth_ok():
+                self._send(401, b"password required", "text/plain",
+                           {"WWW-Authenticate": 'Basic realm="PurffleShorts Studio", charset="UTF-8"'})
+                return False
+            return True
+
+        def _events(self):
+            """Server-sent events: the job list whenever anything changes (at most 4 times a second), and a
+            comment every 15 s so proxies keep the connection open."""
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            seen = -1
+            try:
+                self.wfile.write(b"retry: 2000\n\n")
+                while True:
+                    version = app.wait_change(seen, 15.0)
+                    if version != seen:
+                        seen = version
+                        data = json.dumps(app.jobs_public(), default=str)
+                        self.wfile.write(f"event: jobs\ndata: {data}\n\n".encode())
+                    else:
+                        self.wfile.write(b": ping\n\n")
+                    self.wfile.flush()
+                    time.sleep(0.25)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                return
 
         def _host_ok(self) -> bool:
             if not loopback:
@@ -369,8 +468,8 @@ def _handler(app: StudioServer, bound_host: str):
             self._send(code, json.dumps(data, default=str).encode(), "application/json")
 
         def do_GET(self):
-            if not self._host_ok():
-                return self._send(421, b"wrong host", "text/plain")
+            if not self._gate():
+                return
             path, _, qs = self.path.partition("?")
             params = dict(x.partition("=")[::2] for x in qs.split("&") if x)
             from urllib.parse import unquote_plus
@@ -396,8 +495,9 @@ def _handler(app: StudioServer, bound_host: str):
                 v = app.video(int(m.group(1)))
                 return self._json(v) if v else self._json({"error": "not found"}, 404)
             if path == "/api/jobs":
-                jobs = sorted(app.jobs.values(), key=lambda j: j.id, reverse=True)[:40]
-                return self._json([j.public() for j in jobs])
+                return self._json(app.jobs_public())
+            if path == "/api/events":
+                return self._events()
             m = re.fullmatch(r"/api/jobs/(\d+)", path)
             if m and int(m.group(1)) in app.jobs:
                 return self._json(app.jobs[int(m.group(1))].public(full_log=True))
@@ -465,9 +565,9 @@ def _handler(app: StudioServer, bound_host: str):
                     left -= len(chunk)
 
         def do_POST(self):
-            if not self._host_ok():
-                return self._send(421, b"wrong host", "text/plain")
-            if self.headers.get("X-Studio-Token") != app.token:
+            if not self._gate():
+                return
+            if not hmac.compare_digest(self.headers.get("X-Studio-Token") or "", app.token):
                 return self._json({"error": "bad token"}, 403)
             length = min(int(self.headers.get("Content-Length") or 0), 512 * 1024)
             try:
@@ -528,8 +628,11 @@ def serve(settings: Settings, host: str = "127.0.0.1", port: int = 8765, open_br
     httpd = ThreadingHTTPServer((host, port), _handler(app, host))
     url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{port}/"
     log.info("PurffleShorts Studio running at %s  (Ctrl+C to stop)", url)
-    if host not in LOCAL_HOSTS:
-        log.warning("Studio is reachable from your network on %s — anyone who can load the page can use it.", host)
+    if host not in LOCAL_HOSTS and not os.getenv("STUDIO_PASSWORD"):
+        log.warning("Studio is reachable from your network on %s — anyone who can load the page can use it. "
+                    "Set STUDIO_PASSWORD to require a password.", host)
+    elif os.getenv("STUDIO_PASSWORD"):
+        log.info("Studio password is on (any user name, the password from STUDIO_PASSWORD)")
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     try:

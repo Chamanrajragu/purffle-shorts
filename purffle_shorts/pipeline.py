@@ -22,31 +22,72 @@ from .history import History, now_iso
 from .llm import LLM, LLMConfigError
 from .media import MediaItem, Visuals
 from .overlays import ChatMessage, build_overlays
-from .render import extract_frame, render_video
+from .render import pick_cover, render_video
 from .script import (
+    AUTO_STYLES,
     CARD_STYLES,
     DEFAULT_CAST,
     MULTI_SPEAKER,
+    STYLES,
     Script,
     load_script,
     review_script,
     translate_script,
     write_script,
 )
-from .timing import caption_chunks, scene_timeline, srt, tokenize
+from .timing import caption_chunks, scene_timeline, split_shots, srt, tokenize
 from .topics import Topic, pick_topic
-from .utils import redact, slugify, truncate_words
+from .utils import Cancelled, check_cancel, redact, slugify, truncate_words
 
 log = logging.getLogger("purffle")
 
 END_PAD = 0.6          # seconds of breathing room after the last word
 REUSABLE_SOURCES = {"generated", "local", "openai-images", "ai", "dalle", "gpt-image", "pollinations"}
+AI_SOURCES = {"openai-images", "ai", "dalle", "gpt-image", "pollinations"}
 
-# Rough share of the work done when each stage starts (for progress bars).
+# Rough share of the work done when each stage starts (for progress bars before any timing is learned).
 STAGES = {"topic": 2, "script": 8, "review": 20, "voice": 32, "footage": 45, "captions": 62, "render": 72,
           "check": 92, "upload": 95, "translate": 97, "done": 100}
+ORDER = list(STAGES)
+# Seconds each stage takes for a 40-second video until this machine's own timings are known.
+DEFAULT_SECONDS = {"topic": 1.0, "script": 15.0, "review": 25.0, "voice": 6.0, "footage": 12.0, "captions": 3.0,
+                   "render": 20.0, "check": 1.0, "upload": 30.0, "translate": 70.0}
 
 ProgressFn = Callable[[str, int, str], None]
+
+
+class StageClock:
+    """How long each stage takes on this machine: a moving average per stage, scaled to the video's length
+    and kept in the history database, so progress bars and ETAs follow real time instead of a fixed table."""
+
+    KEY = "stage_seconds"
+
+    def __init__(self, history: History, target_seconds: int):
+        self.history = history
+        self.scale = max(0.25, target_seconds / 40)
+        try:
+            self.avg: dict[str, float] = json.loads(history.get_meta(self.KEY) or "{}")
+        except ValueError:
+            self.avg = {}
+
+    @property
+    def learned(self) -> bool:
+        return {"voice", "render"} <= set(self.avg)
+
+    def expected(self, stage: str) -> float:
+        if stage == "done":
+            return 0.0
+        return self.avg.get(stage, DEFAULT_SECONDS.get(stage, 2.0)) * self.scale
+
+    def record(self, stage: str, seconds: float) -> None:
+        if stage not in DEFAULT_SECONDS or seconds <= 0:
+            return
+        raw = seconds / self.scale
+        self.avg[stage] = round(raw if stage not in self.avg else 0.7 * self.avg[stage] + 0.3 * raw, 2)
+        try:
+            self.history.set_meta(self.KEY, json.dumps(self.avg, sort_keys=True))
+        except Exception:  # timing statistics are a nicety
+            log.debug("could not save stage timings", exc_info=True)
 
 
 @dataclass
@@ -106,12 +147,17 @@ def _unique_folder(root: Path, name: str) -> Path:
     return folder
 
 
-def _media_for(timeline, media_map: dict[int, MediaItem]) -> list[MediaItem]:
-    """Reuse the original video's footage for a translated copy (its scenes may merge differently)."""
+def _media_for(shots, media_map: dict[tuple[int, int], MediaItem]) -> list[MediaItem]:
+    """Reuse the original video's footage for a translated copy. Its scenes may merge or split into shots
+    differently, so each shot takes the closest (scene, shot) of the original."""
     keys = sorted(media_map)
     out = []
-    for st in timeline:
-        k = max([k for k in keys if k <= st.index], default=keys[0])
+    for st in shots:
+        same = [k for k in keys if k[0] == st.index]
+        if same:
+            k = max([k for k in same if k[1] <= st.part], default=same[0])
+        else:
+            k = max([k for k in keys if k[0] <= st.index], default=keys[0])
         out.append(media_map[k])
     return out
 
@@ -123,12 +169,66 @@ class Studio:
         self._llm: LLM | None = None
         self.progress = progress
         self._stats_synced = 0.0
-        self._refused_on = ""  # the quota day on which YouTube itself refused an upload
+        self.clock = StageClock(self.history, settings.target_seconds)
+        self._learn = False            # only whole videos teach the clock (clips use the stages differently)
+        self._quiet = False            # translated copies run as one "translate" stage
+        self._plan: list[str] = []     # the stages this job will go through
+        self._stage, self._stage_t0, self._frac, self._msg = "", 0.0, 0.0, ""
+        self._t_start, self._pct = 0.0, 0
+
+    # ------------------------------------------------------------------ progress, ETA, cancel
+    def _begin(self, plan: list[str]) -> None:
+        self._plan, self._learn = plan, True
+        self._stage, self._t_start, self._pct = "", time.time(), 0
 
     def _step(self, stage: str, message: str = "") -> None:
+        check_cancel()
+        if self._quiet:
+            return
+        now = time.time()
+        # Demo runs write instantly, so they must not teach the clock how long the AI stages take.
+        writing = self._stage in ("topic", "script", "review", "translate")
+        if self._learn and self._stage and self._stage != stage and not (self.s.offline and writing):
+            self.clock.record(self._stage, now - self._stage_t0)
+        self._stage, self._stage_t0, self._frac, self._msg = stage, now, 0.0, message
+        self._report()
+        if stage == "done":  # the job is over: the next draft or make starts its own plan
+            self._learn, self._plan = False, []
+
+    def _sub(self, frac: float, message: str = "") -> None:
+        """Progress inside the current stage (0..1), e.g. render frames written."""
+        if self._quiet:
+            return
+        self._frac = max(self._frac, min(1.0, frac))
+        if message:
+            self._msg = message
+        self._report()
+
+    def eta(self) -> float | None:
+        """Seconds until the job is done, from this machine's stage timings, or None when unknown."""
+        if not self._stage or self._stage == "done" or not self._plan:
+            return None
+        cur = self._stage
+        spent = time.time() - self._stage_t0
+        exp = self.clock.expected(cur)
+        left = exp * (1 - self._frac) if self._frac > 0.02 else max(0.15 * exp, exp - spent)
+        after = self._plan[self._plan.index(cur) + 1:] if cur in self._plan else []
+        return round(left + sum(self.clock.expected(st) for st in after), 1)
+
+    def _report(self) -> None:
+        stage = self._stage
+        if stage == "done":
+            pct = 100
+        elif self.clock.learned and self._plan and (eta := self.eta()) is not None:
+            spent = time.time() - self._t_start
+            pct = int(99 * spent / max(0.1, spent + eta))
+        else:
+            nxt = next((STAGES[x] for x in ORDER[ORDER.index(stage) + 1:]), 100) if stage in STAGES else 0
+            pct = int(STAGES.get(stage, 0) + self._frac * (nxt - STAGES.get(stage, 0)))
+        self._pct = max(self._pct, pct)
         if self.progress:
             try:
-                self.progress(stage, STAGES.get(stage, 0), message)
+                self.progress(stage, self._pct, self._msg)
             except Exception:  # a progress display must never break a video
                 log.debug("progress callback failed", exc_info=True)
 
@@ -169,6 +269,10 @@ class Studio:
               url: str | None = None, document: str | Path | None = None) -> tuple[Script, Topic, str]:
         """Pick a topic, write the script and let the Script Doctor improve it. Nothing is rendered."""
         s = self.s
+        standalone = not self._plan  # a draft on its own (Studio "Draft"), not the first half of make()
+        if standalone:
+            self._begin(["topic", "script"] + (["review"] if not s.offline and s.script_review != "off" else [])
+                        + ["done"])
         self._step("topic")
         if url:
             pick = topics.from_url(url)
@@ -182,8 +286,14 @@ class Studio:
         try:
             self._step("script", pick.subject)
             insights = analytics.insights(self.history) if s.learn_from_stats else ""
+            style = style or pick.style or None
+            if (not style and s.learn_from_stats and s.style not in STYLES
+                    and pick.source not in ("trending", "wikipedia", "reddit", "rss", "url", "document")):
+                style = analytics.choose_style(self.history, sorted(set(AUTO_STYLES)))
+                if style:
+                    log.info("Format from the channel's results: %s", style)
             script = write_script(self.llm, pick.subject, s, source=pick.source, avoid=self.history.recent_titles(),
-                                  context=pick.context, style=style or pick.style or None, insights=insights)
+                                  context=pick.context, style=style, insights=insights)
             if self.llm is not None and s.script_review != "off":
                 self._step("review", "Script Doctor")
                 script = review_script(self.llm, script, s)
@@ -191,6 +301,8 @@ class Studio:
             if pick.idea_id:
                 self.history.release_idea(pick.idea_id)
             raise
+        if standalone:
+            self._step("done", script.title)
         return script, pick, self.llm.label if self.llm else "offline"
 
     # ------------------------------------------------------------------ one video
@@ -204,6 +316,11 @@ class Studio:
         languages = s.also_languages if languages is None else languages
         state: dict = {}
         pick: Topic | None = None
+        writes = script is None and not script_file
+        reviews = writes and not s.offline and s.script_review != "off"
+        self._begin((["topic", "script"] if writes else []) + (["review"] if reviews else [])
+                    + ["voice", "footage", "captions", "render", "check"] + (["upload"] if upload else [])
+                    + ["translate"] * len([x for x in dict.fromkeys(languages or []) if x != s.language]) + ["done"])
         try:
             if script is not None or script_file:
                 if script is None:
@@ -215,6 +332,13 @@ class Studio:
             return self.produce(script, pick, writer, upload=upload, t0=t0, languages=languages, state=state)
         except (youtube.NotAuthorized, LLMConfigError, KeyboardInterrupt):
             raise  # setup problems stop the run instead of failing every video the same way
+        except Cancelled:
+            if pick is not None and pick.idea_id and not state.get("record_id"):
+                self.history.release_idea(pick.idea_id)
+            if state.get("folder") and not state.get("record_id"):
+                shutil.rmtree(state["folder"], ignore_errors=True)  # nothing usable was made
+            log.info("Stopped: the job was cancelled")
+            raise
         except Exception as e:
             if pick is not None and pick.idea_id and not state.get("record_id"):
                 self.history.release_idea(pick.idea_id)
@@ -225,7 +349,7 @@ class Studio:
                           seconds=time.time() - t0)
 
     def produce(self, script: Script, pick: Topic, writer: str, *, upload: bool, t0: float | None = None,
-                languages: list[str] | None = None, media_map: dict[int, MediaItem] | None = None,
+                languages: list[str] | None = None, media_map: dict[tuple[int, int], MediaItem] | None = None,
                 credits: set[str] | None = None, parent_id: int | None = None, settings: Settings | None = None,
                 state: dict | None = None) -> Result:
         t0 = t0 or time.time()
@@ -248,19 +372,28 @@ class Studio:
             chat = script.style == "chat"
             timeline = scene_timeline([sc.narration for sc in script.scenes], speech.words, total, s.language,
                                       starts=speech.line_starts, min_len=4.5 if chat else 1.2)
+            # A chat story's picture is mostly the phone screen: more cuts behind it would only cost time.
+            shots = split_shots(timeline, speech.words, 0 if chat else s.max_shot_seconds)
+            joins = [a.index == b.index for a, b in zip(shots, shots[1:])]
             T = s.transition_seconds if s.transition != "none" else 0.0
 
-            self._step("footage", f"{len(timeline)} scenes")
+            self._step("footage", f"{len(timeline)} scenes, {len(shots)} shots")
             if media_map:
-                media = _media_for(timeline, media_map)
+                media = _media_for(shots, media_map)
                 credits = set(credits or ())
             else:
+                # AI images cost money or are rate-limited: the extra shots of a scene reuse its picture with a
+                # new camera move instead of asking for another one.
+                ai_first = bool(s.visual_sources) and s.visual_sources[0] in AI_SOURCES
+                wanted = [st for st in shots if st.part == 0 or not ai_first]
                 jobs = [(script.scenes[st.index].search_query, script.scenes[st.index].image_prompt,
-                         st.duration + T) for st in timeline]
+                         st.duration + T) for st in wanted]
                 visuals = Visuals(s, self.history.used_media())
-                media = visuals.for_scenes(jobs, script.topic, work / "media")
+                got = dict(zip(((st.index, st.part) for st in wanted),
+                               visuals.for_scenes(jobs, script.topic, work / "media", progress=self._sub)))
+                media = [got.get((st.index, st.part)) or got[(st.index, 0)] for st in shots]
                 credits = visuals.credits
-            by_scene = {st.index: m for st, m in zip(timeline, media)}
+            by_scene = {(st.index, st.part): m for st, m in zip(shots, media)}
 
             self._step("captions")
             chunks = caption_chunks(speech.words, s.caption_max_words, total=total)
@@ -282,14 +415,16 @@ class Studio:
 
             self._step("render", f"{s.width}x{s.height}")
             video = folder / ("short.mp4" if s.vertical else "video.mp4")
-            render_video(s, media, [st.duration for st in timeline], speech.audio, total, plan, video, work)
+            render_video(s, media, [st.duration for st in shots], speech.audio, total, plan, video, work, joins,
+                         progress=self._sub)
 
             self._step("check")
             info = ffmpeg.probe(video)
             if (info["width"], info["height"]) != s.resolution or abs(info["duration"] - total) > 0.5:
                 raise RuntimeError(f"Render check failed: got {info['width']}x{info['height']} "
                                    f"{info['duration']:.2f}s, expected {s.width}x{s.height} {total:.2f}s")
-            extract_frame(video, min(1.2, total / 3), folder / "cover.jpg")
+            pick_cover(video, folder / "cover.jpg", work, total=total, avoid=[st.start for st in shots[1:]],
+                       until=card_until or plan.hook_until or min(2.8, total * 0.4))
             (folder / "captions.srt").write_text(srt(chunks), encoding="utf-8")
 
             title = final_title(script, s)
@@ -299,7 +434,8 @@ class Studio:
                 "category_id": script.category_id, "language": s.language,
                 "topic": script.topic, "source": pick.source, "style": script.style,
                 "duration": round(info["duration"], 2), "resolution": f"{s.width}x{s.height}",
-                "llm": writer, "score": script.score, "review": script.review, "cast": script.cast,
+                "llm": writer, "score": script.score, "rubric": script.rubric, "review": script.review,
+                "cast": script.cast,
                 "voice": f"{speech.engine}:{speech.voice}", "timing": speech.timing,
                 "visuals": [{"source": m.source, "id": m.id, "kind": m.kind, "query": m.query} for m in media],
                 "parent_id": parent_id, "created_at": now_iso(),
@@ -340,23 +476,39 @@ class Studio:
                 shutil.rmtree(work, ignore_errors=True)
 
     def _translation(self, script: Script, pick: Topic, writer: str, lang: str, s: Settings,
-                     by_scene: dict[int, MediaItem], credits: set[str], parent_id: int, upload: bool) -> Result:
+                     by_scene: dict[tuple[int, int], MediaItem], credits: set[str], parent_id: int,
+                     upload: bool) -> Result:
         t0 = time.time()
         try:
             if self.llm is None:
                 raise RuntimeError("translations need an LLM (not available in demo mode)")
             translated = translate_script(self.llm, script, lang)
-            translated.score, translated.review = script.score, script.review
+            translated.score, translated.review, translated.rubric = script.score, script.review, script.rubric
             log.info("Translated to %s: %s", lang, translated.title)
-            return self.produce(translated, pick, writer, upload=upload, t0=t0, media_map=by_scene, credits=credits,
-                                parent_id=parent_id, settings=replace(s, language=lang, tts_voice="", tts_voice_b=""))
-        except youtube.NotAuthorized:
+            self._quiet = True  # the copy's own stages are one "translate" step for the progress bar
+            try:
+                return self.produce(translated, pick, writer, upload=upload, t0=t0, media_map=by_scene,
+                                    credits=credits, parent_id=parent_id,
+                                    settings=replace(s, language=lang, tts_voice="", tts_voice_b=""))
+            finally:
+                self._quiet = False
+        except (youtube.NotAuthorized, Cancelled):
             raise
         except Exception as e:  # including LLMConfigError: the original video is already made
             log.error("Translation to %s failed: %s", lang, redact(e))
             return Result(False, status="failed", error=redact(e), language=lang, seconds=time.time() - t0)
 
     # ------------------------------------------------------------------ uploading
+    @property
+    def _refused_on(self) -> str:
+        """The quota day on which YouTube itself refused an upload. Kept in the history database, so every
+        Studio job, a restarted autopilot and the MCP server all know it."""
+        return self.history.get_meta("youtube_refused_on") or ""
+
+    @_refused_on.setter
+    def _refused_on(self, day: str) -> None:
+        self.history.set_meta("youtube_refused_on", day or None)
+
     def quota_left(self) -> int:
         day = quota_day_start()
         if self._refused_on == day:  # YouTube said no today: nothing more goes up until the reset
@@ -463,8 +615,12 @@ class Studio:
                         time.sleep(wait)
                         continue
                 n = s.batch_size if count is None else min(s.batch_size, count - produced)
-                with concurrent.futures.ThreadPoolExecutor(max_workers=min(s.workers, n)) as ex:
-                    futs = [ex.submit(self.make, topic, source=source, upload=upload) for _ in range(n)]
+                workers = min(s.workers, n)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+                    # Parallel videos each get their own Studio: progress, timing and cancel state are per video.
+                    makers = [self] if workers == 1 else [Studio(s) for _ in range(n)]
+                    futs = [ex.submit(makers[i % len(makers)].make, topic, source=source, upload=upload)
+                            for i in range(n)]
                     results = [f.result() for f in futs]
                 ok = sum(r.ok for r in results)
                 produced += ok

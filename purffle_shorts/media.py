@@ -37,6 +37,8 @@ class MediaItem:
     path: Path | None = None
     query: str = ""
     extra: dict = field(default_factory=dict)
+    rank: int = 0                 # position in the search results (the API's own relevance order)
+    text: str = ""                # what the provider says is in it: page slug, alt text, tags
 
     @property
     def key(self) -> str:
@@ -70,12 +72,14 @@ def pexels_videos(query: str, key: str, prefer_4k: bool = False, orientation: st
     r = http().get("https://api.pexels.com/videos/search", params=params, headers={"Authorization": key}, timeout=30)
     raise_for_status(r, "Pexels video search")
     items = []
-    for v in r.json().get("videos", []):
+    for rank, v in enumerate(r.json().get("videos", [])):
         f = _pexels_pick_file(v.get("video_files", []), prefer_4k)
         if not f:
             continue
+        tags = " ".join(str(t) for t in v.get("tags") or [])
         items.append(MediaItem("pexels", str(v["id"]), "video", f["link"], f["width"], f["height"],
-                               float(v.get("duration") or 0), (v.get("user") or {}).get("name", ""), query=query))
+                               float(v.get("duration") or 0), (v.get("user") or {}).get("name", ""), query=query,
+                               rank=rank, text=f"{_slug_words(v.get('url', ''))} {tags}".strip()))
     return items
 
 
@@ -86,14 +90,15 @@ def pexels_photos(query: str, key: str, orientation: str = "portrait") -> list[M
     r = http().get("https://api.pexels.com/v1/search", params=params, headers={"Authorization": key}, timeout=30)
     raise_for_status(r, "Pexels photo search")
     items = []
-    for p in r.json().get("photos", []):
+    for rank, p in enumerate(r.json().get("photos", [])):
         src = p.get("src") or {}
         url = src.get("original")
         if not url:
             continue
         url += ("&" if "?" in url else "?") + "auto=compress&cs=tinysrgb&h=2400"
         items.append(MediaItem("pexels-photo", str(p["id"]), "image", url, p.get("width", 0), p.get("height", 0),
-                               credit=p.get("photographer", ""), query=query))
+                               credit=p.get("photographer", ""), query=query, rank=rank,
+                               text=f"{p.get('alt') or ''} {_slug_words(p.get('url', ''))}".strip()))
     return items
 
 
@@ -104,13 +109,14 @@ def pixabay_videos(query: str, key: str, prefer_4k: bool = False) -> list[MediaI
     raise_for_status(r, "Pixabay video search")
     order = ["large", "medium", "small"] if prefer_4k else ["medium", "large", "small"]
     items = []
-    for h in r.json().get("hits", []):
+    for rank, h in enumerate(r.json().get("hits", [])):
         vids = h.get("videos") or {}
         f = next((vids[q] for q in order if (vids.get(q) or {}).get("url")), None)
         if not f:
             continue
         items.append(MediaItem("pixabay", str(h["id"]), "video", f["url"], f.get("width", 0), f.get("height", 0),
-                               float(h.get("duration") or 0), h.get("user", ""), query=query))
+                               float(h.get("duration") or 0), h.get("user", ""), query=query, rank=rank,
+                               text=str(h.get("tags") or "")))
     return items
 
 
@@ -121,8 +127,9 @@ def pixabay_photos(query: str, key: str, orientation: str = "portrait") -> list[
         "per_page": 20, "safesearch": "true"})
     raise_for_status(r, "Pixabay photo search")
     return [MediaItem("pixabay-photo", str(h["id"]), "image", h["largeImageURL"], h.get("imageWidth", 0),
-                      h.get("imageHeight", 0), credit=h.get("user", ""), query=query)
-            for h in r.json().get("hits", []) if h.get("largeImageURL")]
+                      h.get("imageHeight", 0), credit=h.get("user", ""), query=query, rank=rank,
+                      text=str(h.get("tags") or ""))
+            for rank, h in enumerate(r.json().get("hits", [])) if h.get("largeImageURL")]
 
 
 # ------------------------------------------------------------------------------------------ AI images
@@ -168,21 +175,67 @@ def simplify_query(query: str) -> str:
     return " ".join(words[:2])
 
 
+def _slug_words(url: str) -> str:
+    """'https://www.pexels.com/video/octopus-swimming-in-the-sea-2169880/' -> 'octopus swimming in the sea'."""
+    slug = url.rstrip("/").rsplit("/", 1)[-1]
+    return " ".join(w for w in re.split(r"[-_]+", slug) if w and not w.isdigit())
+
+
+def _stem(word: str) -> str:
+    """A tiny English stemmer, enough to match 'octopuses'/'octopus', 'swimming'/'swims', 'cities'/'city',
+    'diving'/'dives' between a scene's query and a clip's description."""
+    w = word.lower()
+    if len(w) <= 3:
+        return w
+    if w.endswith("ies") and len(w) > 4:
+        w = w[:-3] + "y"
+    elif w.endswith(("sses", "shes", "ches", "xes", "zes", "uses")):
+        w = w[:-2]
+    elif w.endswith("s") and not w.endswith(("ss", "us", "is")):
+        w = w[:-1]
+    if w.endswith("ing") and len(w) > 5:
+        w = w[:-3]
+    elif w.endswith("ed") and len(w) > 4:
+        w = w[:-2]
+    if len(w) > 3 and w[-1] == w[-2] and w[-1] not in "ls":
+        w = w[:-1]
+    if len(w) > 3 and w.endswith("e"):
+        w = w[:-1]
+    return w
+
+
+def _terms(text: str) -> set[str]:
+    return {_stem(w) for w in re.findall(r"[A-Za-z]+", text.lower()) if w not in STOP_WORDS and len(w) > 1}
+
+
+def relevance(item: MediaItem, query: str) -> float:
+    """0..1: how much of the scene's search query the clip's own description covers. Clips without a
+    description (local files, AI images) count as neutral."""
+    want = _terms(query)
+    if not want or not item.text:
+        return 0.5
+    have = _terms(item.text)
+    return len(want & have) / len(want)
+
+
 def _shape(item: MediaItem) -> str:
     if item.height > item.width:
         return "portrait"
     return "landscape" if item.width > item.height else "square"
 
 
-def _score(item: MediaItem, need: float, orientation: str = "portrait") -> float:
-    s = 0.0
+def _score(item: MediaItem, need: float, orientation: str = "portrait", query: str = "") -> float:
+    """Higher is better. Relevance to the scene matters most, then the search engine's own ranking, then
+    whether the clip fits the frame and lasts long enough."""
+    s = 4.0 * relevance(item, query or item.query)
+    s += 2.0 / (1.0 + 0.25 * item.rank)
     if _shape(item) == orientation or (orientation == "square" and item.width and item.height):
-        s += 3
+        s += 2.5
     if item.kind == "video":
         s += 2 if item.duration >= need else (1 if item.duration >= need * 0.6 else 0)
     if min(item.width, item.height) >= 1080:
         s += 1
-    return s + random.uniform(0, 1.5)  # a little variety between similar candidates
+    return s + random.uniform(0, 0.6)  # a little variety between near-identical candidates
 
 
 class Visuals:
@@ -247,7 +300,7 @@ class Visuals:
         items.sort(key=lambda i: i.extra["overlap"], reverse=True)
         return items
 
-    def _claim(self, candidates: list[MediaItem], need: float) -> MediaItem | None:
+    def _claim(self, candidates: list[MediaItem], need: float, query: str = "") -> MediaItem | None:
         with self.lock:
             fresh = [c for c in candidates if c.key not in self.used]
             if not fresh:
@@ -255,7 +308,7 @@ class Visuals:
             if fresh[0].source == "local":
                 best = fresh[0] if fresh[0].extra.get("overlap") else random.choice(fresh)
             else:
-                best = max(fresh, key=lambda c: _score(c, need, self.s.orientation))
+                best = max(fresh, key=lambda c: _score(c, need, self.s.orientation, query))
             self.used.add(best.key)
             return best
 
@@ -309,7 +362,7 @@ class Visuals:
                 continue
             for q in queries:
                 cand = self._search(source, q)
-                item = self._claim(cand, need)
+                item = self._claim(cand, need, query)  # always judged against the scene's own query
                 if not item:
                     continue
                 try:
@@ -326,10 +379,15 @@ class Visuals:
         log.info("Scene %d: no footage found for %r — using an animated background", idx + 1, query)
         return MediaItem("generated", f"gradient-{idx}", "generated", query=query)
 
-    def for_scenes(self, jobs: list[tuple[str, str, float]], topic: str, dest_dir: Path) -> list[MediaItem]:
-        """jobs: [(search_query, image_prompt, seconds_needed)] -> one MediaItem per scene."""
+    def for_scenes(self, jobs: list[tuple[str, str, float]], topic: str, dest_dir: Path,
+                   progress=None) -> list[MediaItem]:
+        """jobs: [(search_query, image_prompt, seconds_needed)] -> one MediaItem per scene. ``progress`` gets
+        the fraction of scenes that have their footage."""
         dest_dir.mkdir(parents=True, exist_ok=True)
-        workers = 2 if any(s in ("openai-images", "ai", "pollinations") for s in self.sources) else 4
+        workers = 2 if any(s in ("openai-images", "ai", "pollinations") for s in self.sources) else 6
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
             futs = [ex.submit(self.for_scene, i, q, p, topic, need, dest_dir) for i, (q, p, need) in enumerate(jobs)]
+            for done, _ in enumerate(concurrent.futures.as_completed(futs), 1):
+                if progress:
+                    progress(done / len(futs))
             return [f.result() for f in futs]

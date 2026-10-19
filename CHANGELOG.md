@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Fast pacing**: scenes longer than `MAX_SHOT_SECONDS` (4.5 s) are cut into several shots with different footage. Each cut lands on the start of a spoken word near the ideal point, preferring the pauses after commas and sentence ends; shots of one scene hard-cut, scenes keep their transitions. With AI images, the extra shots reuse the scene's picture with a new camera move instead of paying for another image.
+- **Footage relevance**: candidates are scored by how well their own description (Pexels page slug and photo alt text, Pixabay tags) matches the scene's query, with word-form matching, plus the search engine's ranking, before shape, length and resolution.
+- **Script Doctor 2.0**: a six-part rubric (hook, curiosity, pacing, specificity, payoff, accuracy) gives the weighted 0–100 score; deterministic checks (hook length, greetings, length vs. target, missing call to action, long sentences, repeated words, filler, no concrete number) are fed into the review and listed with the result; the rewrite is graded again and dropped if it scores lower than the draft, so the stored score is always that of the script used. Grading runs at temperature 0.2 for repeatable scores. `SCRIPT_REVIEW_ROUNDS` and `SCRIPT_TARGET_SCORE` allow extra rounds. Sub-scores are saved in `metadata.json` and shown in the Studio.
+- **Two-pass loudness** in a separate soundtrack pass (measure, then one linear gain), and gentle voice clean-up (`VOICE_ENHANCE`: rumble cut, de-esser, compression). Measured on a real render: −14.0 LUFS integrated, −1.5 dBFS peak.
+- **Pause-anchored timing**: voices without word timestamps and no aligner get their sentence and clause ends pinned to the pauses ffmpeg finds in the audio; only the words in between are estimated (on a test with known pauses, the mean boundary error went from 0.24 s to under 0.01 s).
+- `WHISPER_MODEL` (default `auto`: `large-v3-turbo` on an NVIDIA GPU, `small` on CPU, was fixed `base`), voice-activity detection for `clip`, and the script text as a hint when aligning a voice.
+- **Strict JSON-schema output** for OpenAI, Gemini, OpenRouter, Ollama and LM Studio, stepping down to JSON mode and then to plain parsing when an endpoint refuses it (`LLM_JSON_SCHEMA=false` to turn off).
+- **Face framing for clips** (`clip --crop face`, `pip install opencv-python-headless`): the YuNet face detector (or OpenCV 4's Haar cascade) samples the clip twice a second, a running median removes stray detections, and the crop keeps one steady framing per camera shot.
+- **Best-frame cover**: the cover is the sharpest, best-exposed, most colourful frame while the hook is on screen, never one blended by a transition.
+- **Live Studio**: jobs are pushed over Server-Sent Events (polling remains as a fallback), running jobs show a percentage and the time left, learned per stage from this machine's own renders, and **Cancel** now stops a running job (ffmpeg is stopped at once; nothing half-made is kept).
+- A live progress line in the terminal for `make`, `demo`, `run` and `clip`.
+- **Voice cache**: lines already spoken in the same voice are reused (`VOICE_CACHE`, size-limited), so re-rendering an edited script only voices what changed.
+- **Learning loop**: with `LEARN_FROM_STATS`, `SCRIPT_STYLE=auto` picks the format by Thompson sampling over the channel's own view counts; `stats` and the Channel page report whether the retention score predicts views (Spearman correlation), median views per format and the best publish hours.
+- `STUDIO_PASSWORD` (HTTP Basic) for a Studio that runs on a server.
+
+### Changed
+- Renders take about 40% less time on the same machine (offline 1080×1920 demo, median of 3 runs: facts 26.0 s → 15.5 s, chat story 27.1 s → 16.8 s), while now cutting about twice as many shots: overlays blend in the output's own pixel format instead of converting every frame, the end card only exists while it is visible, generated backgrounds are drawn small and scaled up (10 s → 2.7 s each), intermediates use the `ultrafast` preset, and caption and chat frames are drawn on several threads.
+- The Anthropic default model is `claude-opus-5-5`, at effort `high` unless `ANTHROPIC_EFFORT` is set (its API default is `medium`); server-side refusal fallbacks also cover Claude Sonnet 5.5; a reply cut off at the token limit is reported as such.
+- Translations (temperature 0.4) and clip picking (0.3) run cooler than script writing.
+- The history database uses WAL mode with indexes, so the Studio reads while a job writes; "YouTube refused uploads today" is stored there, so every Studio job, a restarted autopilot and the MCP server all respect it.
+- `doctor` reports the Script Doctor mode, voice cache, pacing, Whisper model and face framing.
+
 ## 3.0.0 — 2026-09-29
 
 ### Added
