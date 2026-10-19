@@ -369,7 +369,8 @@ def face_crop_filter(settings: Settings, src_w: int, src_h: int, plan: list[tupl
 
 
 # ------------------------------------------------------------------------------------------ editing
-FILLERS = {"um", "umm", "uh", "uhh", "uhm", "erm", "er", "hmm", "mm", "mhm"}
+# hesitation sounds Whisper writes down (English, Spanish, German, French, Portuguese)
+FILLERS = {"um", "umm", "uh", "uhh", "uhm", "erm", "er", "hmm", "mm", "mhm", "eh", "ehm", "äh", "ähm", "euh", "hum"}
 
 
 def _filler(word: Word) -> bool:

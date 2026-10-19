@@ -1,12 +1,13 @@
 <div align="center">
 
-# PurffleShorts — Gerador gratuito de YouTube Shorts com IA e piloto automático de uploads
+# PurffleShorts — Gerador gratuito de YouTube Shorts com IA para canal dark e alternativa ao Opus Clip
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [Español](README.es.md) · **Português** · [हिन्दी](README.hi.md) · [日本語](README.ja.md)
 
 **Um gerador de vídeos open source com IA para YouTube Shorts, TikTok e Instagram Reels. Passe para ele um tema, uma página da web, um post do Reddit ou um podcast longo, e ele cria vídeos verticais prontos (roteiro, narração, imagens, legendas) e depois faz o upload ou agenda a publicação no YouTube.**
 
 [![CI](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml/badge.svg)](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/Chamanrajragu/purffle-shorts?style=social)](https://github.com/Chamanrajragu/purffle-shorts/stargazers)
 
@@ -19,6 +20,8 @@
 ```bash
 uvx --from git+https://github.com/Chamanrajragu/purffle-shorts purffle-shorts demo --style chat
 ```
+
+…ou **[abra no Google Colab](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb)** e crie vídeos no navegador, sem instalar nada.
 
 **⭐ Se o PurffleShorts economiza seu tempo, uma estrela ajuda outros criadores a encontrá-lo.**
 
@@ -39,16 +42,20 @@ Ele também é um pequeno estúdio: edite qualquer linha do roteiro antes de ren
 - **322 vozes neurais gratuitas em 75 idiomas** com sincronização palavra por palavra, sem precisar de chave. Duas vozes para diálogos e histórias em chat.
 - **Imagens para cada frase:** vídeos de banco do Pexels ou do Pixabay (chaves gratuitas), imagens geradas por IA ou a sua própria pasta de mídia. Cada opção recebe uma nota pelo quanto a própria descrição combina com a cena.
 - **Ritmo rápido:** cenas com mais de 4,5 s viram várias tomadas com imagens diferentes, e cada corte cai numa pausa natural entre as palavras (`MAX_SHOT_SECONDS`).
+- **Vídeos de fundo (gameplay):** com `--background parkour.mp4` (ou `BACKGROUND_VIDEO`), um trecho contínuo do seu vídeo de Minecraft parkour, Subway Surfers ou parecido roda por baixo da história inteira, em tela cheia ou em **tela dividida** (`--layout split`), com as imagens da cena em cima. Use só vídeos que você tem direito de reutilizar.
 - **Legendas animadas palavra por palavra** em seis estilos, para escrita latina, índica, árabe, tailandesa e CJK. Com vozes que não informam o tempo de cada palavra, o fim de cada frase é fixado nas pausas reais do áudio, e as legendas continuam sincronizadas.
 - **Áudio com qualidade de transmissão:** uma limpeza leve da voz (corte de graves, de-esser, compressão) e normalização de loudness em duas passadas, que mede a mixagem e aplica um ganho constante: −14 LUFS sem aquele efeito de "bombeamento".
+- **Edição feita para reter:** as palavras-chave que a IA marca e todos os números aparecem em outra cor, um emoji por cena aparece acima das legendas, e há efeitos sonoros gerados por código (um whoosh a cada troca de cena, um pop a cada mensagem e um impacto sob o gancho) mixados 11 dB abaixo da voz.
 - **Capa:** o quadro mais nítido e bem exposto dos primeiros segundos, nunca um quadro no meio de uma transição.
 - Saída em **9:16, 16:9, 1:1 ou 4:5**, renderizada com ffmpeg. Não precisa de GPU.
 - **Faz upload no YouTube** ou agenda cada vídeo no seu próximo horário livre, com a declaração de conteúdo gerado por IA já marcada.
 - **Um vídeo, vários idiomas:** `--also-lang es,hi` cria cópias traduzidas que reaproveitam as mesmas imagens.
 - **App web Studio** no seu computador: crie rascunhos, edite, renderize e navegue pela biblioteca. O progresso chega na hora, com porcentagem e tempo restante calculados a partir do seu próprio computador, e o botão **Cancel** interrompe um trabalho em andamento. Quando o Studio roda num servidor, `STUDIO_PASSWORD` o protege com senha.
+- **Google Colab, API REST e Docker:** um [notebook do Colab](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb) para usar no navegador, uma API REST documentada ([docs/api.md](docs/api.md)) com uma receita para o n8n, e `docker compose` para servidores.
 - Uma linha de progresso ao vivo no terminal e um cache de voz: ao renderizar de novo um roteiro editado, só as falas que mudaram são narradas outra vez.
 - **Servidor MCP:** peça ao Claude Desktop, ao Claude Code ou ao Cursor para criar, cortar ou fazer upload de vídeos.
 - **Aprende com o seu canal** (opcional, `LEARN_FROM_STATS`): quando 8 ou mais vídeos têm estatísticas, o formato de cada vídeo novo é escolhido por amostragem de Thompson com base nas suas visualizações reais, e o `stats` mostra se a nota de retenção realmente prevê as suas visualizações (correlação de Spearman) e quais horários de publicação funcionaram melhor.
+- **SEO embutido:** antes de escrever, ele consulta o que as pessoas realmente pesquisam no YouTube sobre o tema e usa essas frases no título, na descrição e nas tags. Também pode escolher temas a partir dessas pesquisas (`TOPIC_SOURCES=search`), traduzir o título e a descrição para espectadores de outros idiomas (`LOCALIZE_METADATA=en,es`) e enviar as legendas exatas (`UPLOAD_CAPTIONS`).
 
 ## Formatos
 
@@ -85,9 +92,12 @@ Depois copie `.env.example` para `.env`, adicione uma chave de IA (ou rode o Oll
 pip install faster-whisper yt-dlp
 purffle-shorts clip podcast.mp4 --count 3 --no-upload
 purffle-shorts clip interview.mp4 --crop face        # segue o rosto de quem está falando (pip install opencv-python-headless)
+purffle-shorts clip episode.mp4 --prompt "os momentos mais engraçados"   # só os momentos que combinam com o seu pedido
 ```
 
 O vídeo é transcrito, a IA escolhe os trechos que fazem sentido sozinhos e cada um vira um clipe vertical com legendas. Funciona como o Opus Clip, mas no seu próprio computador e sem cobrança por minuto. A transcrição usa `WHISPER_MODEL` (`auto` escolhe `large-v3-turbo` numa GPU NVIDIA e `small` na CPU) com detecção de voz, para que música e silêncio não virem palavras inventadas. Com `--crop face`, o rosto de quem está falando é localizado duas vezes por segundo e fica no enquadramento, que só muda quando a câmera muda de plano. Corte apenas vídeos que sejam seus ou que você tenha permissão para reutilizar.
+
+Cada clipe é editado como um editor faria. **Cortes secos** encurtam as pausas longas e tiram hesitações como "hum" e "um": imagem e som são cortados no mesmo quadro, então a boca continua sincronizada. Um **zoom de impacto** muda o enquadramento entre as frases. Cada clipe vem com uma **nota de viralidade** e o motivo dela. Desligue com `--no-jump-cuts` e `--no-zoom`.
 
 ## Use pelo Claude e por outros apps de IA (MCP)
 

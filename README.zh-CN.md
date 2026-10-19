@@ -1,12 +1,13 @@
 <div align="center">
 
-# PurffleShorts — 免费 AI YouTube Shorts 短视频生成器与自动上传工具
+# PurffleShorts — 免费 AI YouTube Shorts 短视频生成器、无露脸视频工具与 Opus Clip 替代品
 
 [English](README.md) · **简体中文** · [Español](README.es.md) · [Português](README.pt-BR.md) · [हिन्दी](README.hi.md) · [日本語](README.ja.md)
 
 **一款开源的 AI 视频生成器，适用于 YouTube Shorts、TikTok 和 Instagram Reels。给它一个主题、一个网页、一篇 Reddit 帖子或一期长播客，它就能生成完整的竖屏成片（脚本、配音、画面素材、字幕），然后上传到 YouTube 或定时发布。**
 
 [![CI](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml/badge.svg)](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/Chamanrajragu/purffle-shorts?style=social)](https://github.com/Chamanrajragu/purffle-shorts/stargazers)
 
@@ -19,6 +20,8 @@
 ```bash
 uvx --from git+https://github.com/Chamanrajragu/purffle-shorts purffle-shorts demo --style chat
 ```
+
+……或者**[在 Google Colab 中打开](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb)**，无需安装任何东西，直接在浏览器里做视频。
 
 **⭐ 如果 PurffleShorts 帮你节省了时间，点个 Star 能让更多创作者发现它。**
 
@@ -39,16 +42,20 @@ PurffleShorts 是一款面向无人出镜频道的 YouTube Shorts 自动化工�
 - **322 种免费神经网络语音，覆盖 75 种语言**，带词级时间戳，无需密钥。对话和聊天故事可使用两个不同的声音。
 - **每句话都有画面**：来自 Pexels 或 Pixabay 的素材库视频（可免费申请密钥）、AI 图片，或你自己的媒体文件夹。每个候选素材都会按其自身描述与场景的匹配程度打分。
 - **快节奏剪辑**：超过 4.5 秒的场景会拆成多个镜头，每个镜头用不同的素材，剪辑点落在词与词之间的自然停顿上（`MAX_SHOT_SECONDS`）。
+- **背景视频（游戏画面）**：用 `--background parkour.mp4`（或 `BACKGROUND_VIDEO`），你的 Minecraft 跑酷、Subway Surfers 之类视频中连续的一段会在整个故事下方播放。可以全屏，也可以**分屏**（`--layout split`）：上方是场景素材，下方是背景视频。只使用你有权再次使用的视频。
 - **逐词动画字幕**，提供六种样式，支持拉丁文、印度系文字、阿拉伯文、泰文和中日韩文字。对于不提供逐词时间戳的语音，每句话的结尾会对齐到音频里真实的停顿，字幕依然同步。
 - **广播级音频**：先对人声做轻度处理（去除低频杂音、齿音消除、压缩），再做两遍响度标准化：先测量混音，再施加一个恒定增益，稳定达到 −14 LUFS，不会忽大忽小。
+- **为留存而做的剪辑**：AI 标出的关键词和所有数字会用另一种颜色显示，每个场景有一个表情符号在字幕上方弹出。音效由代码生成（每次换场景有嗖的一声，每条消息有一声轻响，开头钩子下有一声低沉的冲击），混音时比人声低 11 dB。
 - **封面图**：选开头几秒里最清晰、曝光最好的一帧，绝不会选到转场中间的画面。
 - **9:16、16:9、1:1 或 4:5** 画幅输出，使用 ffmpeg 渲染，无需 GPU。
 - **上传到 YouTube**，或把每个视频排进你的下一个空闲时段定时发布，并设置好 AI 内容声明。
 - **一个视频，多种语言**：`--also-lang es,hi` 会生成复用同一套画面素材的翻译版本。
 - **Studio 网页应用**，运行在你的电脑上：起草、编辑、渲染、浏览视频库。进度即时推送，显示百分比和剩余时间（根据你自己电脑的实际耗时估算），**Cancel** 按钮可以停止正在运行的任务。在服务器上运行时，可以用 `STUDIO_PASSWORD` 加上密码保护。
+- **Google Colab、REST API 和 Docker**：可在浏览器中使用的 [Colab 笔记本](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb)、附带 n8n 示例的 REST API 文档（[docs/api.md](docs/api.md)），以及用于服务器的 `docker compose`。
 - 终端里有实时进度条；还有语音缓存：重新渲染修改过的脚本时，只会为改动过的句子重新配音。
 - **MCP 服务器**：让 Claude Desktop、Claude Code 或 Cursor 帮你制作、剪辑或上传视频。
 - **从你的频道学习**（可选，`LEARN_FROM_STATS`）：有 8 个或更多带统计数据的视频后，每个新视频的格式会根据真实播放量用汤普森采样来选择；`stats` 会告诉你留存分数是否真的能预测播放量（斯皮尔曼相关系数），以及哪些发布时段表现最好。
+- **内置 SEO**：写稿之前先查看人们在 YouTube 上实际搜索的、与该主题相关的词句，并把它们原样用在标题、简介和标签里。也可以直接从这些搜索中选题（`TOPIC_SOURCES=search`），为其他语言的观众翻译标题和简介（`LOCALIZE_METADATA=en,es`），还可以上传精确的字幕（`UPLOAD_CAPTIONS`）。
 
 ## 视频类型
 
@@ -85,9 +92,12 @@ python -m purffle_shorts studio                      # Web 应用
 pip install faster-whisper yt-dlp
 purffle-shorts clip podcast.mp4 --count 3 --no-upload
 purffle-shorts clip interview.mp4 --crop face        # 让画面跟随说话人的脸（pip install opencv-python-headless）
+purffle-shorts clip episode.mp4 --prompt "最搞笑的片段"   # 只挑符合你要求的片段
 ```
 
 视频会先被转录成文字，AI 挑出能单独成立的片段，每个片段都会变成一条带字幕的竖屏短片。功能类似 Opus Clip，但在你自己的电脑上运行，也不按分钟收费。转录使用 `WHISPER_MODEL`（`auto` 在 NVIDIA GPU 上选 `large-v3-turbo`，在 CPU 上选 `small`），并开启语音活动检测，避免把音乐和静音误转成凭空出现的字词。加上 `--crop face` 后，每秒检测两次说话人的脸并让它保持在画面中，只有镜头切换时才改变构图。请只剪辑你拥有版权或已获授权二次使用的视频。
+
+每个片段都会像剪辑师那样处理：**跳剪**缩短过长的停顿，删掉 "um"、"uh" 这类口头停顿（画面和声音在同一帧上剪，所以口型始终同步）；**推近变焦**在句与句之间切换构图。每个片段都附带**爆款评分**和理由。用 `--no-jump-cuts` 和 `--no-zoom` 可以关闭。
 
 ## 在 Claude 和其他 AI 应用中使用（MCP）
 

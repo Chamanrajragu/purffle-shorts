@@ -152,35 +152,38 @@ It also checked Google and YouTube autocomplete and where this repository ranks 
 
 ## Plan
 ### F. Retention editing
-- [ ] F1 Sound effects synthesised in code (no files to license): whoosh on scene changes, pop per text
+- [x] F1 Sound effects synthesised in code (no files to license): whoosh on scene changes, pop per text
       message, low hit under the hook. Placed 11 dB under the measured voice whichever TTS engine spoke
       (`SOUND_EFFECTS`, `SFX_VOLUME`).
-- [ ] F2 Keyword emphasis: the LLM marks 1–2 key words per scene (strict schema), and numbers are always
+- [x] F2 Keyword emphasis: the LLM marks 1–2 key words per scene (strict schema), and numbers are always
       emphasised. Drawn in a per-style colour by both the Pillow and libass renderers (`CAPTION_EMPHASIS`).
-- [ ] F3 Background video for stories (`BACKGROUND_VIDEO` file/folder/URL, `--background`): one continuous
+- [x] F4 An emoji per scene (strict-schema field), Twemoji images cached in data/emoji and credited in the
+      description. A colour-emoji font was tried first: the Google Fonts build is COLR/SVG, which Pillow's
+      FreeType can't draw, and the bitmap build is no longer published at a stable URL.
+- [x] F3 Background video for stories (`BACKGROUND_VIDEO` file/folder/URL, `--background`): one continuous
       random stretch, either as the picture (`full`) or under the footage (`split`, footage searched in
       the top half's shape).
 
 ### G. Clip editing
-- [ ] G1 Jump cuts: pauses over `CLIP_MAX_PAUSE` shortened and "um/uh" cut. Cuts land on frame
+- [x] G1 Jump cuts: pauses over `CLIP_MAX_PAUSE` shortened and "um/uh" cut. Cuts land on frame
       boundaries and audio is split into frame-sized packets, so picture and sound are cut at the same
       instants (no drift).
-- [ ] G2 Punch-in zoom between sentences (piecewise-constant zoompan, `CLIP_ZOOM`).
-- [ ] G3 `clip --prompt "…"` steers which moments are picked.
-- [ ] G4 Virality score with reasons shown for clips in CLI and Studio.
+- [x] G2 Punch-in zoom between sentences (piecewise-constant zoompan, `CLIP_ZOOM`).
+- [x] G3 `clip --prompt "…"` steers which moments are picked.
+- [x] G4 Virality score with reasons shown for clips in CLI and Studio.
 
 ### H. Reach and SEO
-- [ ] H1 YouTube autocomplete as a topic source (`TOPIC_SOURCES=search`) and as real search phrases handed
+- [x] H1 YouTube autocomplete as a topic source (`TOPIC_SOURCES=search`) and as real search phrases handed
       to the script writer for titles and tags (`SEO_KEYWORDS`).
-- [ ] H2 Localised YouTube titles and descriptions (`LOCALIZE_METADATA=es,pt,hi`), so viewers in other
+- [x] H2 Localised YouTube titles and descriptions (`LOCALIZE_METADATA=es,pt,hi`), so viewers in other
       languages see them in their own language.
-- [ ] H3 Optional caption-track upload (`UPLOAD_CAPTIONS`), with a graceful skip when the token lacks the
+- [x] H3 Optional caption-track upload (`UPLOAD_CAPTIONS`), with a graceful skip when the token lacks the
       scope.
-- [ ] H4 Colab notebook, documented REST API with an n8n example, docker-compose.
-- [ ] H5 README rewritten around search phrases, with headings people search for.
+- [x] H4 Colab notebook, documented REST API with an n8n example, docker-compose.
+- [x] H5 README rewritten around search phrases, with headings people search for.
 
 ### I. QA
-- [ ] Unit tests for every item, then full CLI, Studio (browser), MCP and offline end-to-end renders of
+- [x] Unit tests for every item, then full CLI, Studio (browser), MCP and offline end-to-end renders of
       every format, layout and clip option. A real local-LLM run where time allows.
 
 Not doing this round:
@@ -188,3 +191,31 @@ Not doing this round:
   a public video URL, and the alternative is a paid relay. None of these can be tested here.
 - **Voice cloning.** Its dependencies are heavy and GPU-bound.
 - **AI video generation.** It needs paid APIs.
+
+## Round 2 results (measured on this machine, 20 Oct 2026)
+
+| What | Result |
+|---|---|
+| Tests | 174 → 220, all passing, ruff clean, `node --check` clean, wheel and sdist pass `twine check --strict` |
+| Clean install | Wheel installed with `[clip,face]` into a fresh Python 3.10 venv; every CLI command run as a new user |
+| Render matrix (installed wheel) | 16/16 rendered: 4 demo formats; 16:9, 1:1 and 4:5; full and split gameplay background; no-effects neon; Hindi; all 5 example scripts. Every file at its expected size, −14.0 LUFS (±0.1), −1.5 dBFS peak |
+| Jump-cut sync | Flash-and-beep test video: after removing ~6 s of pauses, every flash and its beep are within one frame. Speech test: 32.6 s → 17.5 s, "um" and "uh" removed |
+| Sound-effect level | 11 dB under the voice measured after the voice chain (test within ±1 dB), whatever the voice's own loudness |
+| MCP over stdio | initialize, tools/list, make_short (Reddit story, split background), clip_video (with a brief), list_videos, an unknown tool: all correct |
+| Studio in a browser | New Create controls (background, layout, effects, key words, emoji) and Clip controls (brief, jump cuts, zoom) work. A split-layout render and a two-clip job finished with the expected log; no horizontal scroll at 375 px; requests while the server is down fell from ~30 to 5 per 25 s |
+| Colab notebook | Cells 1, 2, 3, 5 and 6 run with nbclient on this machine (cell 4 needs an LLM) |
+| Live YouTube search suggestions | Topic questions for 5 niches checked by hand; filters for off-topic, sensitive and adult phrases tuned on them |
+
+**Bugs found by this QA and fixed:**
+- faster-whisper 1.2.1 crashed with the current PyAV.
+- Background videos were also used as scene footage.
+- The CLI had no `--source search`.
+- A Studio API request could upload despite `UPLOAD=false`.
+- A dead server was polled every 1.5 s indefinitely.
+- Offline clip titles kept a leading "uh".
+- The planner, with a small model, produced an invented health claim.
+
+**Not verified here:**
+- **A full make with a real LLM.** The local Ollama was serving another project and timed out after 600 s, and later stopped running. The failure path was verified: a clear error, exit 1, and the idea returned to the queue. The live YouTube search step worked on the same run. The script, review, keyword and localisation prompts are covered with recorded fakes, and round 1 ran the full pipeline on this Ollama.
+- **Real YouTube uploads with localizations and caption tracks.** The API calls are tested against fakes of the client library.
+- **The Colab notebook on Google's machines.** It needs the branch merged into `main` first.
