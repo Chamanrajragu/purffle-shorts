@@ -63,6 +63,9 @@ async function get(url) {
 async function post(url, body) {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "X-Studio-Token": TOKEN }, body: JSON.stringify(body || {}) });
   const data = await r.json().catch(() => ({}));
+  if (r.status === 403 && data.error === "bad token") {  // the server restarted with a new session token
+    throw new Error("The Studio was restarted. Reload this page to continue (your form and draft are kept).");
+  }
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;
 }
@@ -163,21 +166,39 @@ function route() {
 }
 
 // ------------------------------------------------------------------ jobs: live stream, polling as fallback
+// While the server is unreachable (stopped, restarting), retry less and less often, up to every 30 s.
+const backoff = n => Math.min(30000, 1500 * 2 ** Math.min(n, 5));
+
 function connectEvents() {
   if (!window.EventSource) return;
   const es = new EventSource("/api/events");
   es.addEventListener("jobs", e => {
     S.live = true;
+    S.esFails = 0;
     let jobs;
     try { jobs = JSON.parse(e.data); } catch { return; }
     applyJobs(jobs);
   });
-  es.onerror = () => { S.live = false; };  // the browser reconnects by itself; polling covers the gap
+  es.onerror = () => {  // polling covers the gap; reconnect ourselves so a dead server isn't hammered
+    S.live = false;
+    es.close();
+    S.esFails = (S.esFails || 0) + 1;
+    setTimeout(connectEvents, backoff(S.esFails));
+  };
 }
 
 async function tick() {
+  if (Date.now() < (S.retryAt || 0)) return;
   let jobs;
-  try { jobs = await get("/api/jobs"); } catch { return; }
+  try {
+    jobs = await get("/api/jobs");
+    S.fails = 0;
+    S.retryAt = 0;
+  } catch {
+    S.fails = (S.fails || 0) + 1;
+    S.retryAt = Date.now() + backoff(S.fails);
+    return;
+  }
   applyJobs(jobs);
 }
 

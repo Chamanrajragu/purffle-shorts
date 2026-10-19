@@ -314,10 +314,17 @@ class Visuals:
         if not root.is_dir():
             return []
         words = set(simplify_query(query).split()) | set(query.lower().split())
+        # background videos (media/backgrounds, BACKGROUND_VIDEO) play under stories, never as scene footage
+        skip = [(root / "backgrounds").resolve()]
+        if self.s.background_video:
+            skip.append(Path(self.s.background_video).expanduser().resolve())
         items = []
         for p in root.rglob("*"):
             ext = p.suffix.lower()
             if ext not in VIDEO_EXT | IMAGE_EXT:
+                continue
+            rp = p.resolve()
+            if any(rp == d or d in rp.parents for d in skip):
                 continue
             stem = set(re.findall(r"[a-z]+", p.stem.lower()))
             item = MediaItem("local", str(p), "video" if ext in VIDEO_EXT else "image", path=p, query=query)

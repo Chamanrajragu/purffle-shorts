@@ -8,35 +8,71 @@
     {
       "narration": "An octopus has three hearts, and one of them stops when it swims.",
       "search_query": "octopus swimming",
-      "image_prompt": "an orange octopus swimming through clear blue water, arms trailing behind it"
+      "image_prompt": "an orange octopus swimming through clear blue water, arms trailing behind it",
+      "emphasis": [
+        "three",
+        "hearts"
+      ],
+      "emoji": "🐙"
     },
     {
       "narration": "Its blood is blue, because it carries oxygen with copper instead of iron.",
       "search_query": "blue ocean water",
-      "image_prompt": "deep blue ocean water with shafts of sunlight and a small octopus silhouette"
+      "image_prompt": "deep blue ocean water with shafts of sunlight and a small octopus silhouette",
+      "emphasis": [
+        "blue",
+        "copper"
+      ],
+      "emoji": "🩸"
     },
     {
       "narration": "Most of its neurons are not in its head. They are spread through its eight arms.",
       "search_query": "octopus tentacles",
-      "image_prompt": "a curled octopus arm on a rock, detailed suckers, underwater"
+      "image_prompt": "a curled octopus arm on a rock, detailed suckers, underwater",
+      "emphasis": [
+        "neurons",
+        "eight"
+      ],
+      "emoji": "🧠"
     },
     {
       "narration": "Each arm can taste what it touches, using thousands of sensors in its suckers.",
       "search_query": "octopus suckers closeup",
-      "image_prompt": "macro photo of octopus suckers touching a seashell"
+      "image_prompt": "macro photo of octopus suckers touching a seashell",
+      "emphasis": [
+        "taste"
+      ],
+      "emoji": "👅"
     },
     {
       "narration": "And it changes color in a split second to vanish against the reef.",
       "search_query": "coral reef",
-      "image_prompt": "a camouflaged octopus blending into a colourful coral reef"
+      "image_prompt": "a camouflaged octopus blending into a colourful coral reef",
+      "emphasis": [
+        "vanish"
+      ],
+      "emoji": "🫥"
     },
     {
       "narration": "Which fact surprised you most? Follow for more.",
       "search_query": "octopus reef",
-      "image_prompt": "a curious octopus peeking out of a coral reef, looking at the camera"
+      "image_prompt": "a curious octopus peeking out of a coral reef, looking at the camera",
+      "emphasis": [],
+      "emoji": "🤯"
     }
   ],
   "description": "Three hearts, blue blood and arms that can taste. The octopus might be the strangest animal on Earth. Which fact surprised you most?",
-  "hashtags": ["#octopus", "#ocean", "#animals", "#facts"],
-  "tags": ["octopus facts", "ocean animals", "marine biology", "weird animals", "animal facts"]
+  "hashtags": [
+    "#octopus",
+    "#ocean",
+    "#animals",
+    "#facts"
+  ],
+  "tags": [
+    "octopus facts",
+    "ocean animals",
+    "marine biology",
+    "weird animals",
+    "animal facts"
+  ]
 }

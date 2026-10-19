@@ -89,3 +89,31 @@ def test_split_layout_puts_footage_on_top_and_the_background_below(settings, tmp
     assert red > 180 and g < 80 and b < 80
     top = _pixel(r.video, 2.0, 0.5, 0.1)                 # top half: the scene's own (generated) footage
     assert not (top[0] > 180 and top[1] < 80 and top[2] < 80)
+
+
+def test_background_videos_are_never_used_as_scene_footage(settings, tmp_path):
+    media = tmp_path / "media"
+    (media / "backgrounds").mkdir(parents=True)
+    (media / "backgrounds" / "parkour.mp4").write_bytes(b"x")
+    (media / "octopus.mp4").write_bytes(b"x")
+    elsewhere = tmp_path / "game.mp4"
+    elsewhere.write_bytes(b"x")
+    s = settings.with_overrides(media_dir=str(media), visual_sources=["local"])
+    found = [i.path.name for i in M.Visuals(s)._local("octopus")]
+    assert found == ["octopus.mp4"]
+    (media / "game.mp4").write_bytes(b"x")
+    s2 = s.with_overrides(background_video=str(media / "game.mp4"))
+    assert [i.path.name for i in M.Visuals(s2)._local("octopus")] == ["octopus.mp4"]
+
+
+def test_doctor_reports_the_background_and_the_new_editing(settings, tmp_path):
+    from purffle_shorts.doctor import checks
+    bg = tmp_path / "bg"
+    bg.mkdir()
+    _video(bg / "a.mp4", seconds=2)
+    out = {c["label"]: c for c in checks(settings.with_overrides(background_video=str(bg), upload=False,
+                                                                 localize_metadata=["es"]))}
+    assert out["Background video"]["ok"] is True and "1 video" in out["Background video"]["detail"]
+    assert "Footage" not in out                       # a full-screen background needs no stock footage
+    assert "emoji" in out["Retention editing"]["detail"] and "es" in out["SEO"]["detail"]
+    assert "jump cuts" in out["Clip editing"]["detail"]

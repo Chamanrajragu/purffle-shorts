@@ -58,7 +58,10 @@ Audience: {settings.audience}. Language of the videos: {lang} (write subject and
 - subject: one specific, surprising, searchable topic (not a broad theme), e.g. "why octopuses have blue blood".
 - style: the format that fits it best, one of: {formats}. Mix formats; use each at most {max(2, count // 3)} times.
 - angle: one sentence with the hook or twist that makes people stop scrolling.
-Prefer evergreen topics with real facts behind them. Return JSON: {{"ideas": [{{subject, style, angle}}, ...]}}."""
+Every idea must be true and checkable: real events, real science, real places. No invented people, no
+miracle health, diet or money claims, no conspiracy theories (fiction formats like chat and reddit are clearly
+made-up everyday stories). Prefer evergreen topics.
+Return JSON: {{"ideas": [{{subject, style, angle}}, ...]}}."""
     return system, user
 
 

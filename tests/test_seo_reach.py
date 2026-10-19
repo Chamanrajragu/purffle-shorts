@@ -261,3 +261,21 @@ def test_whisper_gets_16k_float_samples_from_our_ffmpeg(tmp_path):
         w.writeframes(b"\x00\x10" * 2 * 48000)
     pcm = tts._pcm16k(path)
     assert pcm.dtype.name == "float32" and abs(len(pcm) - 16000) <= 2
+
+
+def test_adult_searches_are_never_used():
+    assert not seo.usable("test your gaydar quiz") and not seo.usable("naked mole rat sex")
+    assert seo.usable("why do naked mole rats live so long")            # a classic animal topic stays
+    assert seo.usable("why do octopuses have three hearts")
+
+
+def test_planner_asks_for_true_checkable_ideas(settings):
+    from purffle_shorts.planner import plan_prompt
+    _, user = plan_prompt(settings, 5, ["health"], [])
+    assert "true and checkable" in user and "miracle health" in user
+
+
+def test_ordinary_words_do_not_trip_the_off_topic_filter():
+    assert seo.usable("what was the manhattan project")
+    assert seo.usable("how long do turtles live")
+    assert not seo.usable("octopus live stream") and not seo.usable("octopus documentary")

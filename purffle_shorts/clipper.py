@@ -187,6 +187,15 @@ Return JSON: {{"clips": [...]}}"""
     return system, user
 
 
+def _title_from(text: str) -> str:
+    """A title from a spoken sentence (no LLM): without the "um" or "uh" the jump cuts remove anyway."""
+    words = text.split()
+    while words and re.sub(r"[^\w]", "", words[0].lower()) in FILLERS:
+        words.pop(0)
+    t = " ".join(words)[:60].rstrip(" ,.")
+    return t[:1].upper() + t[1:]
+
+
 def _snap(sents: list[Sentence], start: float, end: float, min_s: float, max_s: float) -> tuple[float, float] | None:
     if not sents:
         return None
@@ -219,7 +228,7 @@ def pick_clips(llm, sents: list[Sentence], settings: Settings, count: int, min_s
             end = min(sents[j].end, sents[i].start + max_s)
             if end - sents[i].start < min(min_s, 5.0):
                 continue
-            plans.append(ClipPlan(sents[i].start, end, title=sents[i].text[:60].rstrip(" ,.") or f"Clip {k + 1}",
+            plans.append(ClipPlan(sents[i].start, end, title=_title_from(sents[i].text) or f"Clip {k + 1}",
                                   hook_text=""))
             nxt = j + 1
         return plans

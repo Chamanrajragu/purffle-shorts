@@ -126,3 +126,9 @@ def test_zoom_changes_the_framing(settings, tmp_path):
         out.append(Image.open(f).convert("L").resize((32, 56)))
     diff = sum(abs(a - b) for a, b in zip(out[0].tobytes(), out[1].tobytes()))
     assert diff / (32 * 56) > 8      # the picture jumped (punch-in), not just one frame of motion
+
+
+def test_offline_clip_titles_drop_leading_fillers():
+    assert C._title_from("Uh, and most of their brain is in their arms.") == "And most of their brain is in their arms"
+    assert C._title_from("um um so here it is") == "So here it is"
+    assert C._title_from("Um.") == ""

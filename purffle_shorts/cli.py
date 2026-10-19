@@ -117,7 +117,7 @@ def setup_logging(settings: Settings, verbose: bool = False, stream=None) -> Non
 def _common(p: argparse.ArgumentParser) -> None:
     g = p.add_argument_group("content & models")
     g.add_argument("--topic", help="make a video about exactly this")
-    g.add_argument("--source", choices=["niche", "trending", "wikipedia", "reddit", "rss", "file", "queue"],
+    g.add_argument("--source", choices=["niche", "search", "trending", "wikipedia", "reddit", "rss", "file", "queue"],
                    help="topic source")
     g.add_argument("--niche", action="append", help="niche to pick topics from (repeatable)")
     g.add_argument("--style", help="facts|story|listicle|myth|quiz|motivational|news|explainer|dialogue|chat|reddit|auto")

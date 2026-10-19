@@ -25,8 +25,10 @@ SUGGEST_URL = "https://suggestqueries.google.com/complete/search"
 OFF_TOPIC = re.compile(
     r"\b(in (hindi|tamil|telugu|urdu|bangla|bengali|marathi|english)|for kids|drawing|draw|song|songs|lyrics|"
     r"podcast|documentary|full movie|movie|episode|edit|edits|meme|memes|tiktok|shorts|status|reaction|"
-    r"asmr|minecraft|roblox|fortnite|gta|live|stream|trailer|ppt|pdf|class \d+|project|fancy dress|"
+    r"asmr|minecraft|roblox|fortnite|gta|live stream|livestream|trailer|ppt|pdf|class \d+|fancy dress|"
     r"crochet|joe rogan|mukbang)\b", re.I)
+ADULT = re.compile(r"\b(sex\w*|porn\w*|nude\w*|nsfw|xxx|onlyfans|hentai|boobs?|strip club|gaydar|"
+                   r"18\+)", re.I)
 QUESTION = re.compile(r"^(why|how|what|when|where|who|which|can|do|does|did|is|are|was|were|will|should)\b", re.I)
 GENERIC = {"facts", "fact", "mind", "blowing", "mind-blowing", "strange", "but", "true", "and", "the", "of",
            "tips", "stories", "story", "things", "about", "around", "world", "weird", "famous", "amazing",
@@ -75,7 +77,7 @@ def usable(phrase: str) -> bool:
     """A suggestion that could be a video's subject: 2-12 words, about the thing itself."""
     from .topics import SENSITIVE
     n = len(phrase.split())
-    return 2 <= n <= 12 and not OFF_TOPIC.search(phrase) and not SENSITIVE.search(phrase)
+    return 2 <= n <= 12 and not (OFF_TOPIC.search(phrase) or SENSITIVE.search(phrase) or ADULT.search(phrase))
 
 
 def search_phrases(subject: str, language: str = "en", geo: str = "US", limit: int = 8) -> list[str]:
