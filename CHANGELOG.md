@@ -1,5 +1,55 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **TikTok, Instagram Reels and more** (`PUBLISH_TO=youtube,tiktok,instagram`, `--publish-to`). Each video goes to every listed network with a caption cut to that network's length and without `#shorts`, at the same publish slot as YouTube.
+  - TikTok and Facebook, Threads, X, LinkedIn, Bluesky and Pinterest go through the Upload-Post relay (`UPLOAD_POST_API_KEY`, `UPLOAD_POST_USER`, `TIKTOK_PRIVACY`). TikTok's own API only lets audited apps publish public videos.
+  - Instagram can instead use its official API (`INSTAGRAM_USER_ID`, `INSTAGRAM_ACCESS_TOKEN`), with a resumable upload straight from your computer.
+  - Each network's result (posted, scheduled, submitted, draft, failed or skipped) is saved in `metadata.json` and shown in the Studio.
+  - `upload --id N` and the Studio's **Publish the rest** re-send only what failed, and never upload to YouTube twice. The MP4 is kept until every destination has it.
+  - Tested against recorded API responses, not yet against live TikTok or Instagram accounts.
+- **Sound effects**, made in code (no files to license): a whoosh on each scene change, a pop as each text message lands, a low hit under the hook. They are placed 11 dB under the voice, measured after the voice clean-up, so the balance is the same whichever TTS engine spoke (`SOUND_EFFECTS`, `SFX_VOLUME`, `--no-sfx`).
+- **Key-word emphasis**: the script writer marks the one or two words that carry each scene (a strict-schema field), and numbers are always included. Both caption renderers draw them in each style's emphasis colour (`CAPTION_EMPHASIS`).
+- **Emoji**: one emoji per scene pops up above the captions as the scene starts (Twemoji images, downloaded once and credited in the description; `CAPTION_EMOJI`, `--no-emoji`).
+- **Background videos for stories** (`BACKGROUND_VIDEO`, `--background`): one continuous random stretch of a video, or of a random video from a folder (such as gameplay), plays under the whole Short. `BACKGROUND_LAYOUT=full` makes it the picture; `split` puts the scene footage in the top half (searched in that half's shape) and the background below.
+- **Clip editing**: jump cuts shorten pauses over `CLIP_MAX_PAUSE` (0.6 s) and remove hesitations ("um", "uh", "eh", "äh", "euh", "hum"). Cuts land on frame boundaries, and the audio is split into frame-long packets, so picture and sound are cut at the same instants (a test with flashes and beeps keeps them within one frame). Also punch-in zoom between sentences (`CLIP_ZOOM`), `clip --prompt "the funniest moments"` to steer which moments are picked, and the virality score with its reason in the CLI, Studio and MCP.
+- **Real YouTube searches**: `TOPIC_SOURCES=search` gives the script writer questions people type into YouTube about your niches, and it answers the one that fits. For every video, YouTube's autocomplete phrases for the topic are handed to the writer for the title, description and tags (`SEO_KEYWORDS`, on by default). The planner gets them too. Off-topic, sensitive and adult suggestions are filtered out.
+- **Localised titles and descriptions** (`LOCALIZE_METADATA=es,pt,hi`): sent with the upload as YouTube localizations, so viewers whose YouTube is in those languages see the video under a title in their own language.
+- **Caption tracks**: `UPLOAD_CAPTIONS=true` uploads `captions.srt` to the video. If the saved sign-in predates the setting, the upload is skipped with a hint to run `auth`.
+- **Google Colab notebook** (`notebooks/PurffleShorts.ipynb`): demo, make and clip in the browser with keys from Colab Secrets.
+- **REST API documentation** (`docs/api.md`) with curl, Python and n8n examples. `STUDIO_TOKEN` fixes the write token for automation.
+- **docker-compose.yml** for the Studio and the autopilot on a server, using the published GHCR image.
+- **Fast pacing**: scenes longer than `MAX_SHOT_SECONDS` (4.5 s) are cut into several shots with different footage. Each cut lands on the start of a spoken word near the ideal point, preferring the pauses after commas and sentence ends; shots of one scene hard-cut, scenes keep their transitions. With AI images, the extra shots reuse the scene's picture with a new camera move instead of paying for another image.
+- **Footage relevance**: candidates are scored by how well their own description (Pexels page slug and photo alt text, Pixabay tags) matches the scene's query, with word-form matching, plus the search engine's ranking, before shape, length and resolution.
+- **Script Doctor 2.0**: a six-part rubric (hook, curiosity, pacing, specificity, payoff, accuracy) gives the weighted 0–100 score; deterministic checks (hook length, greetings, length vs. target, missing call to action, long sentences, repeated words, filler, no concrete number) are fed into the review and listed with the result; the rewrite is graded again and dropped if it scores lower than the draft, so the stored score is always that of the script used. Grading runs at temperature 0.2 for repeatable scores. `SCRIPT_REVIEW_ROUNDS` and `SCRIPT_TARGET_SCORE` allow extra rounds. Sub-scores are saved in `metadata.json` and shown in the Studio.
+- **Two-pass loudness** in a separate soundtrack pass (measure, then one linear gain), and gentle voice clean-up (`VOICE_ENHANCE`: rumble cut, de-esser, compression). Measured on a real render: −14.0 LUFS integrated, −1.5 dBFS peak.
+- **Pause-anchored timing**: voices without word timestamps and no aligner get their sentence and clause ends pinned to the pauses ffmpeg finds in the audio; only the words in between are estimated (on a test with known pauses, the mean boundary error went from 0.24 s to under 0.01 s).
+- `WHISPER_MODEL` (default `auto`: `large-v3-turbo` on an NVIDIA GPU, `small` on CPU, was fixed `base`), voice-activity detection for `clip`, and the script text as a hint when aligning a voice.
+- **Strict JSON-schema output** for OpenAI, Gemini, OpenRouter, Ollama and LM Studio, stepping down to JSON mode and then to plain parsing when an endpoint refuses it (`LLM_JSON_SCHEMA=false` to turn off).
+- **Face framing for clips** (`clip --crop face`, `pip install opencv-python-headless`): the YuNet face detector (or OpenCV 4's Haar cascade) samples the clip twice a second, a running median removes stray detections, and the crop keeps one steady framing per camera shot.
+- **Best-frame cover**: the cover is the sharpest, best-exposed, most colourful frame while the hook is on screen, never one blended by a transition.
+- **Live Studio**: jobs are pushed over Server-Sent Events (polling remains as a fallback), running jobs show a percentage and the time left, learned per stage from this machine's own renders, and **Cancel** now stops a running job (ffmpeg is stopped at once; nothing half-made is kept).
+- A live progress line in the terminal for `make`, `demo`, `run` and `clip`.
+- **Voice cache**: lines already spoken in the same voice are reused (`VOICE_CACHE`, size-limited), so re-rendering an edited script only voices what changed.
+- **Learning loop**: with `LEARN_FROM_STATS`, `SCRIPT_STYLE=auto` picks the format by Thompson sampling over the channel's own view counts; `stats` and the Channel page report whether the retention score predicts views (Spearman correlation), median views per format and the best publish hours.
+- `STUDIO_PASSWORD` (HTTP Basic) for a Studio that runs on a server.
+
+### Fixed
+- Transcription with faster-whisper 1.2.1 failed under a newer PyAV ("unexpected keyword argument 'metadata_errors'"). Audio is now decoded by PurffleShorts' own ffmpeg and passed to Whisper as samples.
+- A Studio API request could upload even with `UPLOAD=false` in `.env`; that setting is now a hard stop for API jobs too.
+
+### Changed
+- A Studio page whose server is stopped retries less and less often (up to every 30 s) instead of every 1.5 s, and after a server restart an action explains that the page needs a reload instead of showing "bad token".
+- `doctor` and the Studio's System page report the background video, retention editing, SEO and clip-editing settings. A full-screen background video no longer counts as "no footage".
+- The example scripts carry key words and emoji.
+- The content planner is told that ideas must be true and checkable: no invented people and no miracle health or money claims. A small local model had suggested one.
+- Renders take about 40% less time on the same machine (offline 1080×1920 demo, median of 3 runs: facts 26.0 s → 15.5 s, chat story 27.1 s → 16.8 s), while now cutting about twice as many shots: overlays blend in the output's own pixel format instead of converting every frame, the end card only exists while it is visible, generated backgrounds are drawn small and scaled up (10 s → 2.7 s each), intermediates use the `ultrafast` preset, and caption and chat frames are drawn on several threads.
+- The Anthropic default model is `claude-opus-5-5`, at effort `high` unless `ANTHROPIC_EFFORT` is set (its API default is `medium`); server-side refusal fallbacks also cover Claude Sonnet 5.5; a reply cut off at the token limit is reported as such.
+- Translations (temperature 0.4) and clip picking (0.3) run cooler than script writing.
+- The history database uses WAL mode with indexes, so the Studio reads while a job writes; "YouTube refused uploads today" is stored there, so every Studio job, a restarted autopilot and the MCP server all respect it.
+- `doctor` reports the Script Doctor mode, voice cache, pacing, Whisper model and face framing.
+
 ## 3.0.0 — 2026-09-29
 
 ### Added

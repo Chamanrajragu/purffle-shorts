@@ -6,7 +6,9 @@ import argparse
 import logging
 import logging.handlers
 import os
+import shutil
 import sys
+import threading
 from pathlib import Path
 
 from . import __version__
@@ -15,12 +17,85 @@ from .config import ASPECTS, ConfigError, Settings, aspect_resolution, load_env,
 log = logging.getLogger("purffle")
 
 
+STAGE_NAMES = {"topic": "Topic", "script": "Script", "review": "Review", "voice": "Voice", "footage": "Footage",
+               "captions": "Captions", "render": "Render", "check": "Check", "upload": "Upload",
+               "translate": "Translate", "done": "Done"}
+
+
+class LiveLine:
+    """One status line kept under the log on a terminal: stage, a bar, the percentage and the time left."""
+
+    def __init__(self, stream):
+        self.stream, self.text, self.eta_fn = stream, "", None
+        self.lock = threading.Lock()
+
+    def __call__(self, stage: str, pct: int, message: str) -> None:
+        eta = self.eta_fn() if self.eta_fn else None
+        filled = max(0, min(20, pct // 5))
+        text = f"  {STAGE_NAMES.get(stage, stage):<9} {'█' * filled}{'░' * (20 - filled)} {pct:3d}%"
+        if eta:
+            text += f" · {int(eta // 60)}:{int(eta % 60):02d} left"
+        if message:
+            text += f" · {message}"
+        width = shutil.get_terminal_size((100, 20)).columns - 1
+        with self.lock:
+            self.text = text[:width]
+            self._draw()
+
+    def _draw(self) -> None:
+        self.stream.write("\r\033[K" + self.text)
+        self.stream.flush()
+
+    def clear(self) -> None:
+        with self.lock:
+            if self.text:
+                self.stream.write("\r\033[K")
+
+    def redraw(self) -> None:
+        with self.lock:
+            if self.text:
+                self._draw()
+
+    def close(self) -> None:
+        self.clear()
+        self.text = ""
+
+
+class _Console(logging.StreamHandler):
+    live: LiveLine | None = None
+
+    def emit(self, record: logging.LogRecord) -> None:
+        live = _Console.live
+        if live:
+            live.clear()
+        super().emit(record)
+        if live:
+            live.redraw()
+
+
+def live_line(args) -> LiveLine | None:
+    """A live progress line, but only on a real terminal (not when piped, logged or verbose)."""
+    if getattr(args, "verbose", False) or not sys.stdout.isatty() or os.getenv("TERM") == "dumb":
+        return None
+    if sys.platform.startswith("win") and not (os.getenv("WT_SESSION") or os.getenv("TERM")):
+        return None  # the classic Windows console prints the line-clearing escape codes literally
+    line = LiveLine(sys.stdout)
+    _Console.live = line
+    return line
+
+
+def end_live(line: LiveLine | None) -> None:
+    if line:
+        line.close()
+    _Console.live = None
+
+
 def setup_logging(settings: Settings, verbose: bool = False, stream=None) -> None:
     root = logging.getLogger()
     if root.handlers:
         return
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S")
-    console = logging.StreamHandler(stream or sys.stdout)
+    console = _Console(stream or sys.stdout)
     console.setFormatter(fmt)
     if hasattr(sys.stdout, "reconfigure"):
         try:
@@ -42,7 +117,7 @@ def setup_logging(settings: Settings, verbose: bool = False, stream=None) -> Non
 def _common(p: argparse.ArgumentParser) -> None:
     g = p.add_argument_group("content & models")
     g.add_argument("--topic", help="make a video about exactly this")
-    g.add_argument("--source", choices=["niche", "trending", "wikipedia", "reddit", "rss", "file", "queue"],
+    g.add_argument("--source", choices=["niche", "search", "trending", "wikipedia", "reddit", "rss", "file", "queue"],
                    help="topic source")
     g.add_argument("--niche", action="append", help="niche to pick topics from (repeatable)")
     g.add_argument("--style", help="facts|story|listicle|myth|quiz|motivational|news|explainer|dialogue|chat|reddit|auto")
@@ -66,10 +141,17 @@ def _common(p: argparse.ArgumentParser) -> None:
     r.add_argument("--fps", type=int)
     r.add_argument("--encoder", dest="video_encoder", help="libx264|h264_videotoolbox|h264_nvenc|auto")
     r.add_argument("--no-music", action="store_true", help="skip background music")
+    r.add_argument("--background", dest="background_video", metavar="VIDEO",
+                   help="play this video (or a random one from this folder) under the story, e.g. gameplay")
+    r.add_argument("--layout", dest="background_layout", choices=["full", "split"],
+                   help="with --background: full = it is the picture; split = footage on top, it below")
+    r.add_argument("--no-sfx", action="store_true", help="no sound effects (whooshes, pops, hits)")
+    r.add_argument("--no-emoji", action="store_true", help="no emoji popping up above the captions")
     u = p.add_argument_group("publishing")
     u.add_argument("--no-upload", action="store_true", help="render only, keep the MP4")
     u.add_argument("--privacy", help="public|unlisted|private")
     u.add_argument("--publish-times", help="schedule slots, e.g. 09:00,14:00,19:00")
+    u.add_argument("--publish-to", help="where uploads go, e.g. youtube,tiktok,instagram (default: PUBLISH_TO)")
     p.add_argument("--env-file", help="load settings from this file (one per channel)")
     p.add_argument("-v", "--verbose", action="store_true")
 
@@ -80,7 +162,7 @@ def build_settings(args: argparse.Namespace) -> Settings:
     ov = {k: getattr(args, k, None) for k in (
         "style", "language", "target_seconds", "llm_provider", "llm_model", "tts_engine", "tts_voice",
         "tts_voice_b", "caption_style", "caption_position", "color_grade", "transition", "fps", "video_encoder",
-        "privacy")}
+        "privacy", "background_video", "background_layout")}
     if getattr(args, "niche", None):
         ov["niches"] = args.niche
     if getattr(args, "visuals", None):
@@ -95,10 +177,25 @@ def build_settings(args: argparse.Namespace) -> Settings:
         ov["also_languages"] = [x.strip().lower() for x in args.also_lang.split(",") if x.strip()]
     if getattr(args, "no_music", False):
         ov["music_volume"] = 0.0
+    if getattr(args, "no_sfx", False):
+        ov["sound_effects"] = False
+    if getattr(args, "no_emoji", False):
+        ov["caption_emoji"] = False
+    if getattr(args, "no_jump_cuts", False):
+        ov["clip_jump_cuts"] = False
+    if getattr(args, "no_zoom", False):
+        ov["clip_zoom"] = False
     if getattr(args, "no_upload", False):
         ov["upload"] = False
     if getattr(args, "publish_times", None):
         ov["publish_times"] = [t.strip() for t in args.publish_times.split(",") if t.strip()]
+    if getattr(args, "publish_to", None):
+        from .crosspost import PLATFORMS
+        dest = [t.strip().lower() for t in args.publish_to.split(",") if t.strip()]
+        bad = [d for d in dest if d not in PLATFORMS]
+        if bad or not dest:
+            raise ConfigError(f"--publish-to: unknown {', '.join(bad) or '(empty)'} (choose from {', '.join(PLATFORMS)})")
+        ov["publish_to"] = dest
     s = s.with_overrides(**ov)
     if s.target_seconds:
         s.target_seconds = max(10, min(170, s.target_seconds))
@@ -114,37 +211,68 @@ def cmd_run(args, s: Settings) -> int:
         s.workers = args.workers
     if args.delay is not None:
         s.batch_delay = args.delay
-    produced = Studio(s).autopilot(count=args.count, once=args.once, topic=args.topic, source=args.source)
+    line = live_line(args) if s.workers == 1 else None  # parallel videos would fight over one line
+    try:
+        studio = Studio(s, progress=line)
+        if line:
+            line.eta_fn = studio.eta
+        produced = studio.autopilot(count=args.count, once=args.once, topic=args.topic, source=args.source)
+    finally:
+        end_live(line)
     return 0 if produced or not (args.count or args.once) else 1
 
 
 def cmd_make(args, s: Settings) -> int:
     from .pipeline import Studio
-    studio = Studio(s)
+    line = live_line(args)
+    studio = Studio(s, progress=line)
+    if line:
+        line.eta_fn = studio.eta
     ok = 0
-    for _ in range(max(1, args.count or 1)):
-        r = studio.make(args.topic, source=args.source, script_file=args.script, url=args.url,
-                        document=args.from_file)
-        for x in [r, *r.variants]:
-            ok += x.ok
-            print_result(x)
+    try:
+        for _ in range(max(1, args.count or 1)):
+            r = studio.make(args.topic, source=args.source, script_file=args.script, url=args.url,
+                            document=args.from_file)
+            end_live(line)
+            for x in [r, *r.variants]:
+                ok += x.ok
+                print_result(x)
+            if line:
+                _Console.live = line
+    finally:
+        end_live(line)
     return 0 if ok else 1
+
+
+def _posts(r) -> str:
+    return "".join(f"\n  {p}: {v.get('status')}" + (f" {v['url']}" if v.get("url") else "")
+                   + (f" ({v['error']})" if v.get("error") else "") for p, v in (getattr(r, "posts", None) or {}).items())
 
 
 def print_result(r) -> None:
     if not r.ok:
-        print(f"\n✘ {r.language + ' ' if r.language else ''}failed: {r.error}")
+        print(f"\n✘ {r.language + ' ' if r.language else ''}failed: {r.error}" + _posts(r))
         return
-    score = f"\n  retention score: {r.score}/100" if r.score is not None else ""
+    kind = "virality score" if r.reason else "retention score"
+    score = f"\n  {kind}: {r.score}/100" if r.score is not None else ""
+    if r.reason:
+        score += f" ({r.reason})"
     print(f"\n✔ {r.title}\n  folder: {r.folder}\n  status: {r.status}{score}"
-          + (f"\n  https://youtube.com/shorts/{r.youtube_id}" if r.youtube_id else ""))
+          + (f"\n  https://youtube.com/shorts/{r.youtube_id}" if r.youtube_id else "") + _posts(r))
 
 
 def cmd_demo(args, s: Settings) -> int:
     from .pipeline import Studio
     s = s.with_overrides(offline=True, upload=False)
     print("Demo: offline script + free neural voice + generated backgrounds. No API keys used.\n")
-    r = Studio(s).make(args.topic, style=s.style if s.style != "auto" else None)
+    line = live_line(args)
+    studio = Studio(s, progress=line)
+    if line:
+        line.eta_fn = studio.eta
+    try:
+        r = studio.make(args.topic, style=s.style if s.style != "auto" else None)
+    finally:
+        end_live(line)
     if r.ok:
         print(f"\n✔ Demo video: {r.video}\n  (cover.jpg, captions.srt and metadata.json are next to it)")
         return 0
@@ -160,7 +288,20 @@ def cmd_upload(args, s: Settings) -> int:
         print(f"Uploaded {n} video(s). Remaining today: {max(0, studio.quota_left())}")
         return 0
     if args.id:
-        return 0 if studio.upload_record(args.id) in ("uploaded", "scheduled") else 1
+        from .pipeline import Result
+        rec = studio.history.get(args.id)
+        if not rec:
+            print(f"No video #{args.id} (see `history`).")
+            return 1
+        r = Result(True, rec["title"], Path(rec["folder"]) if rec["folder"] else None, status=rec["status"],
+                   record_id=args.id, youtube_id=rec.get("youtube_id"))
+        status = studio.upload_record(args.id, r)
+        r.status = status
+        if status not in ("uploaded", "scheduled", "queued"):
+            r.ok = False
+            r.error = r.error or (studio.history.get(args.id) or {}).get("error") or status
+        print_result(r)
+        return 0 if status in ("uploaded", "scheduled") else 1
     print("Use --pending (everything not yet uploaded) or --id N (see `history`).")
     return 2
 
@@ -276,8 +417,12 @@ def cmd_ideas(args, s: Settings) -> int:
 def cmd_clip(args, s: Settings) -> int:
     from .clipper import make_clips
     from .pipeline import Studio
-    results = make_clips(Studio(s), args.source, count=args.count, crop=args.crop,
-                         min_seconds=args.min_seconds, max_seconds=args.max_seconds)
+    line = live_line(args)
+    try:
+        results = make_clips(Studio(s, progress=line), args.source, count=args.count, crop=args.crop,
+                             min_seconds=args.min_seconds, max_seconds=args.max_seconds, brief=args.prompt or "")
+    finally:
+        end_live(line)
     for r in results:
         print_result(r)
     return 0 if any(r.ok for r in results) else 1
@@ -298,6 +443,17 @@ def cmd_stats(args, s: Settings) -> int:
     for r in rows[:args.limit]:
         score = r["score"] if r.get("score") is not None else "-"
         print(f"{r['views']:>9,} {r['likes'] or 0:>7,} {score:>5}  {r['title']}")
+    from .analytics import calibration
+    cal = calibration(h)
+    rho = cal["score_vs_views"]
+    corr = f"ρ = {rho:.2f}, " if rho is not None else ""
+    print(f"\nRetention score vs views: {corr}{cal['verdict']} ({cal['scored']} scored video(s) public for 2+ days)")
+    if cal["styles"]:
+        print("Median views by format: " + ", ".join(f"{x['style']} {x['median_views']:,} ({x['videos']})"
+                                                     for x in cal["styles"][:6]))
+    if cal["hours"]:
+        print("Best publish hours (local): " + ", ".join(f"{x['hour']:02d}:00 {x['median_views']:,}"
+                                                         for x in cal["hours"]))
     return 0
 
 
@@ -334,8 +490,13 @@ def build_parser() -> argparse.ArgumentParser:
     _common(c)
     c.add_argument("source", help="video file, or a URL (needs: pip install yt-dlp)")
     c.add_argument("--count", type=int, default=3, help="how many clips (default 3)")
-    c.add_argument("--crop", choices=["center", "blur"], default="center",
-                   help="center = fill the frame; blur = whole picture over a blurred copy")
+    c.add_argument("--crop", choices=["center", "blur", "face"], default="center",
+                   help="center = fill the frame; blur = whole picture over a blurred copy; "
+                        "face = follow the speaker's face (pip install opencv-python-headless)")
+    c.add_argument("--prompt", metavar="BRIEF",
+                   help='what to look for, e.g. "the funniest moments" or "every tip about sleep" (needs an LLM)')
+    c.add_argument("--no-jump-cuts", action="store_true", help="keep the pauses and filler sounds")
+    c.add_argument("--no-zoom", action="store_true", help="no punch-in zoom between sentences")
     c.add_argument("--min-seconds", type=int, default=20)
     c.add_argument("--max-seconds", type=int, default=58)
     c.set_defaults(func=cmd_clip)
@@ -368,10 +529,10 @@ def build_parser() -> argparse.ArgumentParser:
     _common(d)
     d.set_defaults(func=cmd_demo)
 
-    up = sub.add_parser("upload", help="upload rendered or queued videos")
+    up = sub.add_parser("upload", help="publish rendered or queued videos (YouTube and PUBLISH_TO networks)")
     _common(up)
-    up.add_argument("--pending", action="store_true", help="upload everything not yet on YouTube")
-    up.add_argument("--id", type=int, help="upload one video by history id")
+    up.add_argument("--pending", action="store_true", help="publish everything rendered or queued")
+    up.add_argument("--id", type=int, help="publish one video by history id (retries only what didn't go out)")
     up.set_defaults(func=cmd_upload)
 
     for name, func, helptext in [("auth", cmd_auth, "connect your YouTube channel (OAuth)"),

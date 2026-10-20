@@ -102,7 +102,7 @@ def test_planner_saves_unique_ideas(tmp_path):
     h.add_video(title="Why Cats Purr", status="uploaded")
 
     class LLM:
-        def complete_json(self, system, user, schema=None, max_tokens=4000):
+        def complete_json(self, system, user, schema=None, max_tokens=4000, temperature=None):
             assert "Why Cats Purr" in user and "3 YouTube Shorts" in user
             return {"ideas": [
                 {"subject": "why cats purr", "style": "facts", "angle": "dup of a made video"},

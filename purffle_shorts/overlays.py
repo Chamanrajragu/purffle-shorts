@@ -11,10 +11,12 @@ Two renderers produce the same look:
 
 from __future__ import annotations
 
-import functools
+import concurrent.futures
 import logging
 import os
+import re
 import shutil
+import threading
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -23,7 +25,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, features
 from . import ffmpeg
 from .config import Settings
 from .timing import NO_SPACE_LANGS, Chunk
-from .utils import download
+from .utils import download, emphasis_key, http
 
 log = logging.getLogger("purffle")
 
@@ -94,9 +96,25 @@ def resolve_font(settings: Settings, style_font: str = "anton") -> tuple[Path | 
     return None, "Arial"
 
 
-@functools.lru_cache(maxsize=64)
+_fonts = threading.local()
+
+
 def load_font(path: str | None, size: int, weight: int = 800) -> ImageFont.FreeTypeFont:
-    size = max(8, int(size))
+    """A cached font object. The cache is per thread: caption states are drawn in parallel and a FreeType
+    face must not be used by two threads at once."""
+    cache = getattr(_fonts, "cache", None)
+    if cache is None:
+        cache = _fonts.cache = {}
+    key = (path, max(8, int(size)), weight)
+    font = cache.get(key)
+    if font is None:
+        if len(cache) > 96:
+            cache.clear()
+        font = cache[key] = _open_font(path, key[1], weight)
+    return font
+
+
+def _open_font(path: str | None, size: int, weight: int) -> ImageFont.FreeTypeFont:
     if not path:
         return ImageFont.load_default(size=size)
     font = ImageFont.truetype(path, size)
@@ -142,16 +160,25 @@ class CapStyle:
     active_scale: float = 1.12
     pop: bool = True
     font: str = "anton"
+    emphasis: str | None = "#4ADE80"   # key words and numbers, whether or not they are being spoken
 
 
 CAPTION_STYLES = {
     "bold": CapStyle(),
-    "boxed": CapStyle(active="#FFFFFF", box="#7C3AED", active_scale=1.0, stroke_ratio=0.07),
-    "neon": CapStyle(active="#39FF14", glow="#00E5FF", stroke="#001018", stroke_ratio=0.05, shadow=False),
-    "clean": CapStyle(active="#FFFFFF", active_scale=1.06, stroke_ratio=0.0, font="sans"),
-    "karaoke": CapStyle(active="#FFE11A", spoken="#FFE11A", active_scale=1.06),
-    "minimal": CapStyle(active=None, active_scale=1.0, pop=False),
+    "boxed": CapStyle(active="#FFFFFF", box="#7C3AED", active_scale=1.0, stroke_ratio=0.07, emphasis="#FFE11A"),
+    "neon": CapStyle(active="#39FF14", glow="#00E5FF", stroke="#001018", stroke_ratio=0.05, shadow=False,
+                     emphasis="#FF3EC8"),
+    "clean": CapStyle(active="#FFFFFF", active_scale=1.06, stroke_ratio=0.0, font="sans", emphasis="#FFD60A"),
+    "karaoke": CapStyle(active="#FFE11A", spoken="#FFE11A", active_scale=1.06, emphasis="#FF7A59"),
+    "minimal": CapStyle(active=None, active_scale=1.0, pop=False, emphasis=None),
 }
+_DIGIT = re.compile(r"\d")
+
+
+def is_emphasised(word: str, keys: set[str] | frozenset[str]) -> bool:
+    """A caption word gets the emphasis colour when the script marked it, or when it is a number."""
+    k = emphasis_key(word)
+    return bool(k) and (k in keys or bool(_DIGIT.search(k)))
 # Dialogue: speaker B's highlight and name tag use a second colour so viewers can tell who is talking.
 SPEAKER_B = {"active": "#4FC3F7", "box": "#0EA5E9", "tag": "#4FC3F7"}
 SPEAKER_A_TAG = "#FFE11A"
@@ -164,6 +191,18 @@ def _rgba(hex_color: str, alpha: int = 255) -> tuple[int, int, int, int]:
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), alpha
 
 
+def _parallel(fn, jobs: list) -> None:
+    """Draw overlay states on several threads (Pillow releases the GIL while blurring and compressing)."""
+    workers = max(1, min(8, (os.cpu_count() or 2), len(jobs)))
+    if workers == 1:
+        for job in jobs:
+            fn(job)
+        return
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers, thread_name_prefix="overlay") as ex:
+        for _ in ex.map(fn, jobs):
+            pass
+
+
 def display_word(text: str, uppercase: bool) -> str:
     t = text.strip().strip(",.;:\"“”()[]")
     t = t or text.strip()
@@ -173,8 +212,10 @@ def display_word(text: str, uppercase: bool) -> str:
 # ------------------------------------------------------------------------------------------ Pillow captions
 class PillowCaptions:
     def __init__(self, settings: Settings, style: CapStyle, font_path: Path | None,
-                 labels: dict[str, str] | None = None):
+                 labels: dict[str, str] | None = None, emphasis: set[str] | None = None):
         self.s, self.style = settings, style
+        # None = no highlighting at all; an empty set still highlights numbers
+        self.emphasis = None if emphasis is None or not style.emphasis else frozenset(emphasis)
         self.font_path = str(font_path) if font_path else None
         self.W, self.H = settings.resolution
         self.band_h = int(self.H * 0.30) // 2 * 2
@@ -251,6 +292,8 @@ class PillowCaptions:
                 color = st.fill
                 if is_active and st.active:
                     color = st.active
+                elif self.emphasis is not None and is_emphasised(word, self.emphasis):
+                    color = st.emphasis
                 elif st.spoken and active is not None and i < active:
                     color = st.spoken
                 if is_active and st.box:
@@ -309,6 +352,7 @@ class PillowCaptions:
                 entries.append((name, until - t))
                 t = until
 
+        jobs: list[tuple[str, list[str], int | None, int, float, str]] = []
         for ci, chunk in enumerate(chunks):
             words = [display_word(w.text, self.s.caption_uppercase) for w in chunk.words]
             if not any(words):
@@ -326,13 +370,19 @@ class PillowCaptions:
                     for sc in POP_SCALES:
                         n += 1
                         name = f"c{ci:04d}_pop{n:05d}.png"
-                        self.render(words, k, size, sc, chunk.speaker).save(out_dir / name, compress_level=1)
+                        jobs.append((name, words, k, size, sc, chunk.speaker))
                         add(name, min(t + frame, end))
                 n += 1
                 name = f"c{ci:04d}_w{n:05d}.png"
-                self.render(words, k, size, speaker=chunk.speaker).save(out_dir / name, compress_level=1)
+                jobs.append((name, words, k, size, 1.0, chunk.speaker))
                 add(name, end)
         add(blank.name, total)
+
+        def draw(job) -> None:
+            name, words, k, size, sc, speaker = job
+            self.render(words, k, size, sc, speaker).save(out_dir / name, compress_level=1)
+
+        _parallel(draw, jobs)
         if not entries:
             entries.append((blank.name, total))
         lines = ["ffconcat version 1.0"]
@@ -433,7 +483,7 @@ def _ass_escape(t: str) -> str:
 def write_ass(settings: Settings, style: CapStyle, family: str, chunks: list[Chunk], total: float, dest: Path, *,
               hook: str = "", hook_until: float = 0.0, cta: str = "", cta_from: float = 0.0,
               watermark: str = "", hook_y: float = 0.15, cta_y: float = 0.30,
-              labels: dict[str, str] | None = None) -> Path:
+              labels: dict[str, str] | None = None, emphasis: set[str] | None = None) -> Path:
     W, H = settings.resolution
     U = settings.unit
     size = settings.caption_fontsize or int(U * 0.085)
@@ -460,6 +510,8 @@ def write_ass(settings: Settings, style: CapStyle, family: str, chunks: list[Chu
     ]
     big = int(style.active_scale * 100)
     labels = labels or {}
+    emph_c = _ass_color(style.emphasis) if style.emphasis and emphasis is not None else None
+    keys = frozenset(emphasis or ())
     for chunk in chunks:
         b = chunk.speaker == "B"
         active_c = _ass_color(SPEAKER_B["active"] if b else style.active) if style.active else None
@@ -480,6 +532,8 @@ def write_ass(settings: Settings, style: CapStyle, family: str, chunks: list[Chu
             for i, w in enumerate(words):
                 if k is not None and i == k and active_c:
                     parts.append(f"{{\\c{active_c}\\fscx{big}\\fscy{big}}}{w}{{\\r}}")
+                elif emph_c and is_emphasised(w, keys):
+                    parts.append(f"{{\\c{emph_c}}}{w}{{\\r}}")
                 elif spoken_c and k is not None and i < k:
                     parts.append(f"{{\\c{spoken_c}}}{w}{{\\r}}")
                 else:
@@ -522,13 +576,16 @@ class ChatScreen:
         self.ph = int(H * 0.66) // 2 * 2
         self.font_path = str(font_path) if font_path else None
         self.size = int(U * 0.043)
-        self.font = load_font(self.font_path, self.size, weight=500)
         self.pad = int(U * 0.03)
         self.header_h = int(U * 0.13)
         self.contact = contact or "Unknown"
         self.max_bubble = int(self.pw * 0.74)
         self.line_h = sum(self.font.getmetrics()) + int(self.size * 0.12)
         self.gap = int(self.size * 0.45)
+
+    @property
+    def font(self) -> ImageFont.FreeTypeFont:
+        return load_font(self.font_path, self.size, weight=500)  # per thread: states are drawn in parallel
 
     def _wrap(self, text: str) -> list[str]:
         lines, cur = [], ""
@@ -617,14 +674,15 @@ class ChatScreen:
         out_dir.mkdir(parents=True, exist_ok=True)
         frame = 1.0 / self.s.fps
         entries: list[tuple[str, float]] = []
+        jobs: list[tuple[str, list[ChatMessage], bool, float]] = []
         t, n = 0.0, 0
 
-        def add(img: Image.Image, until: float):
+        def add(shown: list[ChatMessage], until: float, typing: bool = False, enter: float = 0.0):
             nonlocal t, n
             if until - t > 0.001:
                 n += 1
                 name = f"chat{n:04d}.png"
-                img.save(out_dir / name, compress_level=1)
+                jobs.append((name, shown, typing, enter))
                 entries.append((name, until - t))
                 t = until
 
@@ -632,16 +690,22 @@ class ChatScreen:
             shown = messages[:k]
             if k and msg.speaker == "A":  # the contact is typing...
                 typing_from = max(t, msg.start - 0.55)
-                add(self.render(shown), typing_from)
-                add(self.render(shown, typing=True), msg.start)
+                add(shown, typing_from)
+                add(shown, msg.start, typing=True)
             else:
-                add(self.render(shown), msg.start)
+                add(shown, msg.start)
             end = messages[k + 1].start if k + 1 < len(messages) else total
             for e in (0.6, 0.25):  # pop-in
-                add(self.render(messages[:k + 1], enter=e), min(t + frame, end))
-        add(self.render(messages), total)
+                add(messages[:k + 1], min(t + frame, end), enter=e)
+        add(messages, total)
         if not entries:
-            add(self.render(messages), max(total, frame))
+            add(messages, max(total, frame))
+
+        def draw(job) -> None:
+            name, shown, typing, enter = job
+            self.render(shown, typing=typing, enter=enter).save(out_dir / name, compress_level=1)
+
+        _parallel(draw, jobs)
         lines = ["ffconcat version 1.0"]
         for name, dur in entries:
             lines += [f"file '{name}'", f"duration {dur:.4f}"]
@@ -764,6 +828,94 @@ def post_card_png(settings: Settings, font_path: Path | None, community: str, us
     return dest, (W - cw) // 2, y0
 
 
+# ------------------------------------------------------------------------------------------ emoji
+TWEMOJI = "https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.2/assets/72x72/{}.png"
+EMOJI_CREDIT = "Emoji: Twemoji (CC-BY 4.0)"
+_emoji_lock = threading.Lock()
+
+
+def twemoji_code(char: str) -> str:
+    """Twemoji's file name for an emoji: its code points in hex, without the variation selector unless the
+    emoji is a zero-width-joined sequence."""
+    cps = [ord(c) for c in char]
+    if 0x200D not in cps:
+        cps = [c for c in cps if c != 0xFE0F]
+    return "-".join(f"{c:x}" for c in cps)
+
+
+def emoji_png(char: str, data_dir: Path) -> Path | None:
+    """The emoji's image, downloaded once into data/emoji. None when it can't be had (offline, an emoji
+    newer than the set): the video is then made without it."""
+    if not char:
+        return None
+    code = twemoji_code(char)
+    dest = data_dir / "emoji" / f"{code}.png"
+    if dest.exists() and dest.stat().st_size > 0:
+        return dest
+    with _emoji_lock:
+        try:  # one quick try: an emoji is a nicety, never worth holding up a render
+            r = http().get(TWEMOJI.format(code), timeout=8)
+            if r.status_code != 200 or not r.content or len(r.content) > 512 * 1024:
+                raise RuntimeError(f"HTTP {r.status_code}")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            tmp = dest.with_suffix(".part")
+            tmp.write_bytes(r.content)
+            with Image.open(tmp) as im:
+                im.verify()
+            os.replace(tmp, dest)
+            return dest
+        except Exception as e:
+            log.info("Emoji %s unavailable (%s)", char, e)
+            return None
+
+
+def emoji_pops(settings: Settings, events: list[tuple[float, float, str]], total: float,
+               out_dir: Path) -> tuple[Path, int, int] | None:
+    """(ffconcat playlist, x, y): each (start, end, emoji) pops in above the captions (small, overshoot,
+    settle), stays until ``end`` and disappears. None when no emoji image could be had."""
+    size = int(settings.unit * 0.16) // 2 * 2
+    canvas = int(size * 1.3) // 2 * 2
+    images: list[tuple[float, float, Image.Image]] = []
+    misses = 0
+    for start, end, char in events:
+        png = emoji_png(char, settings.data_path) if misses < 2 else None  # offline: stop asking
+        misses = 0 if png else misses + 1
+        if png and end - start > 0.2:
+            with Image.open(png) as im:
+                images.append((start, end, im.convert("RGBA")))
+    if not images:
+        return None
+    out_dir.mkdir(parents=True, exist_ok=True)
+    blank = out_dir / "blank.png"
+    Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0)).save(blank)
+    frame = 1.0 / settings.fps
+    lines, t = ["ffconcat version 1.0"], 0.0
+
+    def add(name: str, until: float) -> None:
+        nonlocal t
+        if until - t > 0.001:
+            lines.extend([f"file '{name}'", f"duration {until - t:.4f}"])
+            t = until
+    for k, (start, end, im) in enumerate(sorted(images, key=lambda x: x[0])):
+        start = max(start, t)
+        add(blank.name, start)
+        for j, scale in enumerate((0.55, 1.15, 1.0)):
+            side = max(2, int(size * scale))
+            state = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+            state.alpha_composite(im.resize((side, side), Image.LANCZOS), ((canvas - side) // 2, (canvas - side) // 2))
+            name = f"e{k:03d}_{j}.png"
+            state.save(out_dir / name, compress_level=1)
+            add(name, min(end, start + frame * (j + 1)) if j < 2 else end)
+    add(blank.name, total)
+    lines.append(f"file '{blank.name}'")
+    playlist = out_dir / "emoji.ffconcat"
+    playlist.write_text("\n".join(lines) + "\n")
+    cy = CENTER_Y.get(settings.caption_position, CENTER_Y["center"])
+    y = int(settings.height * cy - settings.unit * 0.21 - canvas / 2)
+    log.info("Emoji: %d", len(images))
+    return playlist, (settings.width - canvas) // 2, max(0, y)
+
+
 # ------------------------------------------------------------------------------------------ plan
 @dataclass
 class OverlayPlan:
@@ -780,15 +932,21 @@ class OverlayPlan:
     chat: tuple[Path, int, int] | None = None  # (ffconcat playlist, x, y) for chat stories
     card: tuple[Path, int, int] | None = None  # (png, x, y) post card for Reddit-style stories
     card_until: float = 0.0
+    emoji: tuple[Path, int, int] | None = None  # (ffconcat playlist, x, y) emoji popping up above the captions
 
 
 def build_overlays(settings: Settings, chunks: list[Chunk], total: float, hook_text: str, work: Path, *,
                    labels: dict[str, str] | None = None, chat: list[ChatMessage] | None = None,
                    contact: str = "", card: tuple[str, str, str] | None = None,
-                   card_until: float = 0.0) -> OverlayPlan:
+                   card_until: float = 0.0, emphasis: set[str] | None = None,
+                   emoji: list[tuple[float, float, str]] | None = None) -> OverlayPlan:
     """labels: speaker name tags over the captions (dialogue). chat: render a text-message screen
     instead of captions (the messages are the captions). card: (community, poster, title) of a post card
-    shown until ``card_until`` in place of the hook title (pass captions that start after it)."""
+    shown until ``card_until`` in place of the hook title (pass captions that start after it).
+    emphasis: key words (see utils.emphasis_key) drawn in the style's emphasis colour, as are numbers.
+    emoji: (start, end, emoji) shown above the captions."""
+    emphasis = (set(emphasis or ()) if settings.caption_emphasis else None)
+    emoji_plan = emoji_pops(settings, emoji, total, work / "emoji") if emoji and settings.caption_emoji else None
     style = CAPTION_STYLES.get(settings.caption_style, CAPTION_STYLES["bold"])
     if not settings.caption_uppercase and style.font == "anton":
         style = replace(style, font="sans")
@@ -821,14 +979,15 @@ def build_overlays(settings: Settings, chunks: list[Chunk], total: float, hook_t
         ass = write_ass(settings, style, family, chunks, total, work / "captions.ass",
                         hook=hook_text if hook_until else "", hook_until=hook_until,
                         cta=cta_text, cta_from=cta_from, watermark=settings.watermark_text,
-                        hook_y=hook_y, cta_y=0.10 if chat else 0.30, labels=labels)
+                        hook_y=hook_y, cta_y=0.10 if chat else 0.30, labels=labels, emphasis=emphasis)
         log.info("Captions: libass renderer (%s, font %s)", settings.language, family)
         return OverlayPlan("ass", ass=ass, fonts_dir=fonts, chat=chat_plan, card=card_plan,
-                           card_until=card_until if card_plan else 0.0)
+                           card_until=card_until if card_plan else 0.0, emoji=emoji_plan)
 
-    plan = OverlayPlan("pillow", chat=chat_plan, card=card_plan, card_until=card_until if card_plan else 0.0)
+    plan = OverlayPlan("pillow", chat=chat_plan, card=card_plan, card_until=card_until if card_plan else 0.0,
+                       emoji=emoji_plan)
     if chunks:
-        caps = PillowCaptions(settings, style, font_path, labels)
+        caps = PillowCaptions(settings, style, font_path, labels, emphasis)
         plan.captions, plan.captions_y = caps.build(chunks, total, work / "captions"), caps.band_y
     ui_font, _ = resolve_font(settings, "anton" if settings.caption_uppercase else "sans")
     if hook_until:

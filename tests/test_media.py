@@ -81,3 +81,37 @@ def test_pollinations_payment_required_stops_asking(monkeypatch, tmp_path, caplo
     items = [v.for_scene(i, "cat", "a cat", "cats", 3.0, tmp_path) for i in range(4)]
     assert calls == ["pk_x"] and all(i.kind == "generated" for i in items)
     assert "POLLINATIONS_API_KEY" in caplog.text and caplog.text.count("refused") == 1
+
+
+def test_pexels_items_carry_description_and_rank(monkeypatch):
+    data = {"videos": [
+        {"id": 1, "duration": 9, "url": "https://www.pexels.com/video/city-traffic-at-night-111/",
+         "video_files": [{"link": "a", "width": 1080, "height": 1920, "file_type": "video/mp4"}]},
+        {"id": 2, "duration": 9, "url": "https://www.pexels.com/video/an-octopus-swimming-in-the-sea-222/",
+         "video_files": [{"link": "b", "width": 1080, "height": 1920, "file_type": "video/mp4"}]}]}
+    monkeypatch.setattr(M, "http", lambda: S(data))
+    a, b = M.pexels_videos("octopus", "key")
+    assert (a.rank, b.rank) == (0, 1)
+    assert b.text == "an octopus swimming in the sea"
+
+
+def test_relevance_matches_word_forms():
+    item = M.MediaItem("pexels", "1", "video", text="octopuses swimming near a coral reef")
+    assert M.relevance(item, "octopus swims") == 1.0
+    assert M.relevance(item, "octopus city") == 0.5
+    assert M.relevance(M.MediaItem("local", "x", "video"), "anything") == 0.5  # no description: neutral
+
+
+def test_claim_prefers_the_clip_that_shows_the_scene(monkeypatch):
+    monkeypatch.setattr(M.random, "uniform", lambda a, b: 0.0)
+    v = M.Visuals(Settings())
+    # The search engine ranked an unrelated clip first; the matching one should still win.
+    off = M.MediaItem("pexels", "1", "video", width=1080, height=1920, duration=10, rank=0,
+                      text="woman walking in a park")
+    on = M.MediaItem("pexels", "2", "video", width=1080, height=1920, duration=10, rank=3,
+                     text="octopus camouflage on coral reef")
+    assert v._claim([off, on], 5, "octopus camouflage").key == "pexels:2"
+    # With equal descriptions the search ranking decides.
+    first = M.MediaItem("pexels", "3", "video", width=1080, height=1920, duration=10, rank=0, text="ocean waves")
+    later = M.MediaItem("pexels", "4", "video", width=1080, height=1920, duration=10, rank=9, text="ocean waves")
+    assert v._claim([later, first], 5, "ocean waves").key == "pexels:3"

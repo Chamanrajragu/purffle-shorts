@@ -81,3 +81,11 @@ def test_load_script_rejects_non_objects(tmp_path):
 def test_shipped_examples_load(path):
     sc = load_script(path, Settings())
     assert len(sc.scenes) >= 4 and sc.hook_text and all(s.image_prompt for s in sc.scenes)
+
+
+def test_narration_cleanup_turns_dashes_into_clean_pauses():
+    from purffle_shorts.utils import clean_narration
+    assert clean_narration("packed with copper — not iron.") == "packed with copper, not iron."
+    assert clean_narration("blue–green , really ?") == "blue, green, really?"
+    assert clean_narration("It ends here —.") == "It ends here."
+    assert clean_narration("[Hook] Wow! #facts 🐙") == "Wow!"

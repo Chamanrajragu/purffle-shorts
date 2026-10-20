@@ -3,6 +3,7 @@ narration into scenes and caption chunks."""
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
@@ -38,18 +39,21 @@ def norm(token: str) -> str:
     return re.sub(r"[^\w]", "", token.lower(), flags=re.UNICODE)
 
 
+def _weight(token: str) -> float:
+    """How long a token takes to say, relative to the others: its length, plus a pause after punctuation."""
+    w = len(norm(token)) + 2.0
+    if token[-1:] in ".!?":
+        w += 4.0
+    elif token[-1:] in ",;:":
+        w += 2.0
+    return w
+
+
 def estimate_timings(tokens: list[str], duration: float, lead: float = 0.05, tail: float = 0.15) -> list[Word]:
     """Spread tokens over ``duration`` by length, with extra time after punctuation (natural pauses)."""
     if not tokens:
         return []
-    weights = []
-    for t in tokens:
-        w = len(norm(t)) + 2.0
-        if t[-1:] in ".!?":
-            w += 4.0
-        elif t[-1:] in ",;:":
-            w += 2.0
-        weights.append(w)
+    weights = [_weight(t) for t in tokens]
     span = max(0.1, duration - lead - tail)
     scale = span / sum(weights)
     out, t0 = [], lead
@@ -63,6 +67,61 @@ def estimate_timings(tokens: list[str], duration: float, lead: float = 0.05, tai
         out.append(Word(tok, round(t0, 3), round(t0 + d - pause, 3)))
         t0 += d
     return out
+
+
+SENTENCE_MARKS, CLAUSE_MARKS = ".!?。！？", ",;:，；：、"
+
+
+def _anchor(tokens: list[str], weights: list[float], lo: int, hi: int, t0: float, t1: float,
+            silences: list[tuple[float, float]], marks: str) -> list[tuple[int, float, float]]:
+    """Walk the phrase ends in tokens[lo:hi] and pin each one to the pause in the audio closest to where the
+    words before it should end. The prediction restarts from every pinned pause, so errors don't add up."""
+    cuts: list[tuple[int, float, float]] = []
+    seg_tok, seg_t = lo, t0
+    for i in range(lo, hi - 1):
+        if tokens[i][-1:] not in marks:
+            continue
+        rest = sum(weights[seg_tok:hi])
+        pred = seg_t + (t1 - seg_t) * sum(weights[seg_tok:i + 1]) / rest
+        window = 0.35 * (pred - seg_t) + 0.2
+        near = [(a, b) for a, b in silences if seg_t < (a + b) / 2 < t1 and abs((a + b) / 2 - pred) <= window]
+        if near:  # closest to the prediction, and a longer pause is a likelier phrase end
+            a, b = min(near, key=lambda c: abs((c[0] + c[1]) / 2 - pred) - 0.5 * (c[1] - c[0]))
+            cuts.append((i, a, b))
+            seg_tok, seg_t = i + 1, b
+    return cuts
+
+
+def anchored_timings(tokens: list[str], duration: float,
+                     silences: list[tuple[float, float]]) -> tuple[list[Word], int]:
+    """Word times for audio without a word-level timestamp: sentence ends, then clause ends, are pinned to the
+    real pauses found in the audio (ffmpeg silencedetect), and only the words between two pauses are
+    estimated. Returns the words and how many phrase boundaries were pinned."""
+    if not tokens:
+        return [], 0
+    silences = sorted(silences)
+    lead = silences[0][1] if silences and silences[0][0] <= 0.05 else 0.05
+    end = silences[-1][0] if silences and silences[-1][1] >= duration - 0.05 else max(lead + 0.1, duration - 0.15)
+    inner = [(a, b) for a, b in silences if a > lead + 0.02 and b < end - 0.02]
+    weights = [_weight(t) for t in tokens]
+    cuts = _anchor(tokens, weights, 0, len(tokens), lead, end, inner, SENTENCE_MARKS)
+    bounds = [(-1, lead, lead)] + cuts + [(len(tokens) - 1, end, end)]
+    finer: list[tuple[int, float, float]] = []
+    for (i0, _, b0), (i1, a1, _) in zip(bounds, bounds[1:]):  # clause pauses inside each sentence
+        finer += _anchor(tokens, weights, i0 + 1, i1 + 1, b0, a1, inner, CLAUSE_MARKS)
+    cuts = sorted(cuts + finer)
+    bounds = [(-1, lead, lead)] + cuts + [(len(tokens) - 1, end, end)]
+    words: list[Word] = []
+    for (i0, _, b0), (i1, a1, _) in zip(bounds, bounds[1:]):
+        part = tokens[i0 + 1:i1 + 1]
+        if not part:
+            continue
+        # The pause after the phrase is already outside [b0, a1], so its last word gets no pause allowance.
+        bare = part[:-1] + [part[-1].rstrip(SENTENCE_MARKS + CLAUSE_MARKS) or part[-1]]
+        est = estimate_timings(bare, max(0.05, a1 - b0), lead=0.0, tail=0.0)
+        words += [Word(tok, round(b0 + w.start, 3), round(b0 + w.end, 3)) for tok, w in zip(part, est)]
+        words[-1].end = round(a1, 3)
+    return words, len(cuts)
 
 
 def transfer_timings(tokens: list[str], timed: list[Word], duration: float) -> list[Word]:
@@ -117,6 +176,7 @@ class SceneTiming:
     index: int
     start: float
     end: float
+    part: int = 0   # shot number inside the scene (long scenes are cut into several shots)
 
     @property
     def duration(self) -> float:
@@ -154,6 +214,42 @@ def scene_timeline(scene_texts: list[str], words: list[Word], total: float, lang
         last = merged.pop()
         merged[-1].end = last.end
     return merged
+
+
+def split_shots(timeline: list[SceneTiming], words: list[Word], max_len: float,
+                min_len: float = 1.6) -> list[SceneTiming]:
+    """Cut scenes longer than ``max_len`` into shots, the way an editor keeps the picture moving. Each cut
+    lands on the start of a spoken word close to the ideal point, preferring the pauses after commas and
+    sentence ends, and no shot is shorter than ``min_len``."""
+    if max_len <= 0:
+        return list(timeline)
+    out: list[SceneTiming] = []
+    for st in timeline:
+        k = math.ceil(st.duration / max_len - 1e-6)
+        if k <= 1 or st.duration < 2 * min_len:
+            out.append(st)
+            continue
+        k = min(k, int(st.duration // min_len))
+        cands = []  # (time, pause before it)
+        for i, w in enumerate(words):
+            if st.start + min_len <= w.start <= st.end - min_len:
+                cands.append((w.start, w.start - words[i - 1].end if i else 0.0))
+        cuts: list[float] = []
+        prev = st.start
+        for j in range(1, k):
+            ideal = st.start + st.duration * j / k
+            pool = [c for c in cands if c[0] - prev >= min_len and st.end - c[0] >= min_len * (k - j)]
+            if pool:
+                t = min(pool, key=lambda c: abs(c[0] - ideal) - min(0.8, 2.0 * max(0.0, c[1])))[0]
+            elif not cands and ideal - prev >= min_len:
+                t = ideal  # no words to snap to (silence, music): cut evenly
+            else:
+                continue
+            cuts.append(t)
+            prev = t
+        bounds = [st.start, *cuts, st.end]
+        out += [SceneTiming(st.index, a, b, part) for part, (a, b) in enumerate(zip(bounds, bounds[1:]))]
+    return out
 
 
 @dataclass

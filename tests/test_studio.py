@@ -96,3 +96,95 @@ def test_offline_draft_job_runs_to_completion(server):
     assert job["status"] == "done", job
     assert job["result"]["script"]["style"] == "chat" and job["pct"] == 100
     assert job["label"] == "Demo video"
+
+
+def _job(port, jid, until=("done", "failed", "cancelled"), tries=600):
+    for _ in range(tries):
+        job = json.loads(req(port, "GET", f"/api/jobs/{jid}")[2])
+        if job["status"] in until:
+            return job
+        time.sleep(0.05)
+    return job
+
+
+def test_event_stream_pushes_job_changes(server):
+    app, port = server
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    c.request("GET", "/api/events")
+    r = c.getresponse()
+    assert r.status == 200 and r.getheader("Content-Type").startswith("text/event-stream")
+    jid = json.loads(req(port, "POST", "/api/draft", {"offline": True}, app.token)[2])["job"]
+    seen = set()
+    deadline = time.time() + 15
+    while time.time() < deadline and "done" not in seen:
+        line = r.fp.readline().decode()
+        if line.startswith("data: "):
+            jobs = json.loads(line[6:])
+            seen |= {j["status"] for j in jobs if j["id"] == jid}
+    c.close()
+    assert "done" in seen  # the finished job arrived on the stream, without polling
+
+
+def test_a_running_job_can_be_cancelled(server, monkeypatch):
+    from purffle_shorts import pipeline as P
+    from purffle_shorts.utils import CANCEL
+    app, port = server
+    started = threading.Event()
+    real_step = P.Studio._step
+
+    def slow_step(self, stage, message=""):
+        if stage == "voice":
+            started.set()
+            for _ in range(200):  # stand-in for a long stage that checks for cancellation
+                if CANCEL.is_set():
+                    break
+                time.sleep(0.02)
+        return real_step(self, stage, message)
+    monkeypatch.setattr(P.Studio, "_step", slow_step)
+    jid = json.loads(req(port, "POST", "/api/make", {"offline": True}, app.token)[2])["job"]
+    assert started.wait(10)
+    assert json.loads(req(port, "POST", f"/api/jobs/{jid}/cancel", {}, app.token)[2])["ok"]
+    job = _job(port, jid)
+    assert job["status"] == "cancelled", job
+    assert app.studio.history.recent(5) == []  # nothing half-made was left in the library
+    assert not CANCEL.is_set()                 # the next job starts clean
+
+
+def test_password_protects_everything(settings):
+    app = ST.StudioServer(settings.with_overrides(upload=False))
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), ST._handler(app, "127.0.0.1", password="s3cret"))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+    try:
+        status, headers, _ = req(port, "GET", "/api/info")
+        assert status == 401 and "Basic" in headers["WWW-Authenticate"]
+        import base64
+        good = "Basic " + base64.b64encode(b"me:s3cret").decode()
+        bad = "Basic " + base64.b64encode(b"me:nope").decode()
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        c.request("GET", "/api/info", headers={"Authorization": bad})
+        assert c.getresponse().status == 401
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        c.request("GET", "/api/info", headers={"Authorization": good})
+        assert c.getresponse().status == 200
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        root = logging.getLogger()
+        for h in [h for h in root.handlers if isinstance(h, ST._JobLog)]:
+            root.removeHandler(h)
+
+
+def test_running_jobs_report_an_eta(server):
+    app, port = server
+    app.studio.clock.avg.update({"voice": 2.0, "render": 4.0})  # as if the machine had made videos before
+    st = app.studio
+    st._begin(["voice", "footage", "captions", "render", "check", "done"])
+    st._step("voice")
+    eta = st.eta()
+    assert eta is not None and eta > 4.0
+    st._t_start -= 10  # ten seconds into the job
+    st._step("render")
+    st._sub(0.5)
+    assert st.eta() == 3.0  # the second half of render (2 s) + the default 1 s for the check
+    assert 0 < st._pct < 100

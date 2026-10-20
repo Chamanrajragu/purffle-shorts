@@ -33,6 +33,11 @@ CREATE TABLE IF NOT EXISTS ideas (
     status TEXT NOT NULL DEFAULT 'pending',   -- pending | used
     used_at TEXT, video_id INTEGER
 );
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS videos_status ON videos (status);
+CREATE INDEX IF NOT EXISTS videos_youtube_id ON videos (youtube_id);
+CREATE INDEX IF NOT EXISTS videos_uploaded_at ON videos (uploaded_at);
+CREATE INDEX IF NOT EXISTS ideas_status ON ideas (status, id);
 """
 
 # Columns added after 2.0; existing databases get them on open.
@@ -53,6 +58,11 @@ class History:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         with self._db() as c:
+            # WAL lets the Studio read the library while a job is writing to it.
+            try:
+                c.execute("PRAGMA journal_mode=WAL")
+            except sqlite3.DatabaseError:
+                pass  # e.g. a network drive without shared memory: the default journal still works
             c.executescript(SCHEMA)
             have = {r["name"] for r in c.execute("PRAGMA table_info(videos)")}
             for col, kind in VIDEO_COLUMNS.items():
@@ -64,6 +74,7 @@ class History:
         with self._lock:
             conn = sqlite3.connect(self.path, timeout=30)
             conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA synchronous=NORMAL")  # safe with WAL, and much faster commits
             try:
                 yield conn
                 conn.commit()
@@ -142,6 +153,15 @@ class History:
             "SELECT id, title, style, views, likes, comments FROM videos WHERE views IS NOT NULL "
             f"AND COALESCE(publish_at, uploaded_at) <= ? ORDER BY views {order} LIMIT ?", (cutoff, n))
 
+    def results(self, min_age_hours: int = 48) -> list[dict]:
+        """Every video with view counts that has been public long enough to judge (original language only,
+        so a translated copy doesn't count twice)."""
+        cutoff = datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() - min_age_hours * 3600,
+                                        timezone.utc).isoformat(timespec="seconds")
+        return self._all(
+            "SELECT id, title, style, score, views, likes, comments, publish_at, uploaded_at FROM videos "
+            "WHERE views IS NOT NULL AND parent_id IS NULL AND COALESCE(publish_at, uploaded_at) <= ?", (cutoff,))
+
     # -- idea queue (planner) --
     def add_idea(self, subject: str, style: str = "", notes: str = "") -> int:
         return self._exec("INSERT INTO ideas (created_at, subject, style, notes) VALUES (?, ?, ?, ?)",
@@ -185,3 +205,16 @@ class History:
 
     def mark_topic(self, key: str) -> None:
         self._exec("INSERT OR IGNORE INTO topics_used (key, used_at) VALUES (?, ?)", (key.lower(), now_iso()))
+
+    # -- small persistent state (e.g. the day YouTube last refused an upload) --
+    def get_meta(self, key: str) -> str | None:
+        rows = self._all("SELECT value FROM meta WHERE key = ?", (key,))
+        return rows[0]["value"] if rows else None
+
+    def set_meta(self, key: str, value: str | None) -> None:
+        if value is None:
+            self._exec("DELETE FROM meta WHERE key = ?", (key,))
+        else:
+            self._exec("INSERT INTO meta (key, value, updated_at) VALUES (?, ?, ?) "
+                       "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                       (key, value, now_iso()))

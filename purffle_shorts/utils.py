@@ -6,6 +6,7 @@ import logging
 import os
 import random
 import re
+import threading
 import time
 import unicodedata
 from collections.abc import Callable
@@ -23,6 +24,24 @@ USER_AGENT = "PurffleShorts/3.0 (+https://github.com/Chamanrajragu/purffle-short
 
 class PermanentError(Exception):
     """An error that retrying will not fix (bad key, 4xx, invalid input)."""
+
+
+class Cancelled(Exception):
+    """The user stopped the job (Studio "Cancel"): raised at the next stage boundary or ffmpeg step."""
+
+
+# Set by the Studio to stop the running job. Jobs run one at a time, so one flag for the process is enough.
+CANCEL = threading.Event()
+
+
+def check_cancel() -> None:
+    if CANCEL.is_set():
+        raise Cancelled("cancelled")
+
+
+def emphasis_key(word: str) -> str:
+    """How a caption word is compared for highlighting: lower case, without the punctuation around it."""
+    return re.sub(r"^\W+|\W+$", "", word.lower(), flags=re.UNICODE)
 
 
 def with_retries(
@@ -138,8 +157,10 @@ def clean_narration(text: str) -> str:
     t = re.sub(r"(?<!\w)#\w+", " ", t)                     # hashtags
     t = re.sub(r"[*_`~>|]+", " ", t)                        # markdown
     t = re.sub(r"https?://\S+", " ", t)
-    t = t.replace("—", ", ").replace("–", ", ")   # dashes read better as pauses
+    t = re.sub(r"\s*[—–]\s*", ", ", t)   # dashes read better as pauses ("copper — not iron" -> "copper, not iron")
     t = re.sub(r"\s+", " ", t).strip()
+    t = re.sub(r"\s+([,.!?;:])", r"\1", t)  # no space before punctuation
+    t = re.sub(r",\s*([,.!?;:])", r"\1", t)  # "blue, ." -> "blue."
     return t
 
 

@@ -38,33 +38,38 @@ class Preset:
     kind: str = "openai"          # openai (chat/completions compatible) | anthropic
     json_mode: bool = True        # supports response_format={"type":"json_object"}
     local: bool = False
+    schema_mode: bool = False     # supports strict response_format={"type":"json_schema"} (exact keys and types)
 
 
 PRESETS: dict[str, Preset] = {p.name: p for p in [
-    Preset("openai", "OpenAI (GPT)", "https://api.openai.com/v1", ("OPENAI_API_KEY",), "gpt-4o-mini"),
+    Preset("openai", "OpenAI (GPT)", "https://api.openai.com/v1", ("OPENAI_API_KEY",), "gpt-4o-mini",
+           schema_mode=True),
     Preset("anthropic", "Anthropic (Claude)", "", ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"),
-           "claude-opus-5", kind="anthropic"),
+           "claude-opus-5-5", kind="anthropic"),
     Preset("gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai",
-           ("GEMINI_API_KEY", "GOOGLE_API_KEY"), "gemini-2.5-flash"),
+           ("GEMINI_API_KEY", "GOOGLE_API_KEY"), "gemini-2.5-flash", schema_mode=True),
     Preset("groq", "Groq (Llama, fast)", "https://api.groq.com/openai/v1", ("GROQ_API_KEY",),
            "llama-3.3-70b-versatile"),
     Preset("openrouter", "OpenRouter (hundreds of models)", "https://openrouter.ai/api/v1",
-           ("OPENROUTER_API_KEY",), "openai/gpt-4o-mini"),
+           ("OPENROUTER_API_KEY",), "openai/gpt-4o-mini", schema_mode=True),
     Preset("deepseek", "DeepSeek", "https://api.deepseek.com/v1", ("DEEPSEEK_API_KEY",), "deepseek-chat"),
     Preset("mistral", "Mistral", "https://api.mistral.ai/v1", ("MISTRAL_API_KEY",), "mistral-small-latest"),
     Preset("together", "Together AI", "https://api.together.xyz/v1", ("TOGETHER_API_KEY",),
            "meta-llama/Llama-3.3-70B-Instruct-Turbo", json_mode=False),
     Preset("xai", "xAI (Grok)", "https://api.x.ai/v1", ("XAI_API_KEY",), "grok-3-mini"),
-    Preset("ollama", "Ollama (local, free)", "http://localhost:11434/v1", (), "llama3.1", local=True),
+    Preset("ollama", "Ollama (local, free)", "http://localhost:11434/v1", (), "llama3.1", local=True,
+           schema_mode=True),
     Preset("lmstudio", "LM Studio (local, free)", "http://localhost:1234/v1", (), "local-model",
-           json_mode=False, local=True),
+           json_mode=False, local=True, schema_mode=True),
     Preset("custom", "Any OpenAI-compatible URL (LLM_BASE_URL)", "", ("LLM_API_KEY",), ""),
 ]}
 
 AUTO_ORDER = ["openai", "anthropic", "gemini", "groq", "openrouter", "deepseek", "mistral", "together", "xai"]
 
-# Claude models whose requests get server-side refusal fallbacks by default.
-_CLAUDE_FALLBACK_MODELS = re.compile(r"^claude-(opus-5|fable-5)")
+# Claude models whose requests get server-side refusal fallbacks ("default" routing) by default.
+_CLAUDE_FALLBACK_MODELS = {"claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"}
+# Claude Opus 5.5 thinks at "medium" effort unless asked; scripts and reviews are worth "high".
+_CLAUDE_DEFAULT_EFFORT = {"claude-opus-5-5": "high"}
 
 
 def _key_for(preset: Preset, settings: Settings) -> str:
@@ -167,6 +172,7 @@ class OpenAICompatible(Provider):
         self.name, self.preset, self.model = preset.name, preset, model
         self.api_key, self.base_url = api_key, base_url.rstrip("/")
         self._json_mode = preset.json_mode
+        self._schema_mode = preset.schema_mode and os.getenv("LLM_JSON_SCHEMA", "true").lower() not in ("0", "false")
 
     def _is_reasoning_model(self) -> bool:
         return bool(re.match(r"^(o\d|gpt-5)", self.model.split("/")[-1]))
@@ -181,7 +187,11 @@ class OpenAICompatible(Provider):
         else:
             payload["temperature"] = temperature
             payload["max_tokens"] = max_tokens
-        if schema is not None and self._json_mode:
+        if schema and self._schema_mode:
+            # Strict structured output: the reply is guaranteed to have exactly the keys and types asked for.
+            payload["response_format"] = {"type": "json_schema",
+                                          "json_schema": {"name": "reply", "schema": schema, "strict": True}}
+        elif schema is not None and self._json_mode:
             payload["response_format"] = {"type": "json_object"}
         headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -190,11 +200,24 @@ class OpenAICompatible(Provider):
             headers["HTTP-Referer"] = "https://github.com/Chamanrajragu/purffle-shorts"
             headers["X-Title"] = "PurffleShorts"
         try:
-            r = http().post(f"{self.base_url}/chat/completions", json=payload, headers=headers, timeout=180)
+            # A local model on a laptop CPU can take minutes for one script; cloud APIs answer far sooner.
+            timeout = 600 if self.preset.local else 180
+            r = http().post(f"{self.base_url}/chat/completions", json=payload, headers=headers, timeout=timeout)
             raise_for_status(r, f"{self}")
         except PermanentError as e:
-            if "response_format" in payload and "response_format" in str(e):
-                self._json_mode = False  # endpoint doesn't support JSON mode; rely on prompt + parser
+            fmt = payload.get("response_format", {}).get("type")
+            text = str(e).lower()
+            named = any(k in text for k in ("response_format", "json_schema", "schema", "structured"))
+            # Strict schemas are newer: a plain "bad request" from an endpoint in that mode is worth one retry
+            # without it (an auth error would fail the same way and is reported as such).
+            generic = fmt == "json_schema" and ("http 400" in text or "http 422" in text)
+            if fmt and (named or generic):
+                # The endpoint (or this model) can't do it: step down to JSON mode, then to prompt + parser.
+                if fmt == "json_schema":
+                    self._schema_mode = False
+                    log.info("%s: no strict JSON schema support; using JSON mode", self)
+                else:
+                    self._json_mode = False
                 return self.complete(system, user, schema=schema, temperature=temperature, max_tokens=max_tokens)
             raise
         data = r.json()
@@ -231,13 +254,14 @@ class AnthropicProvider(Provider):
         output_config: dict[str, Any] = {}
         if schema:
             output_config["format"] = {"type": "json_schema", "schema": schema}
-        if self.effort:
-            output_config["effort"] = self.effort
+        effort = self.effort or _CLAUDE_DEFAULT_EFFORT.get(self.model, "")
+        if effort:
+            output_config["effort"] = effort
         if output_config:
             kwargs["output_config"] = output_config
         # Sampling params (temperature) are rejected by current Claude models, so none are sent.
         try:
-            if _CLAUDE_FALLBACK_MODELS.match(self.model):
+            if self.model in _CLAUDE_FALLBACK_MODELS:
                 resp = self.client.beta.messages.create(
                     betas=["server-side-fallback-2026-07-01"], fallbacks="default", **kwargs)
             else:
@@ -248,6 +272,8 @@ class AnthropicProvider(Provider):
             raise LLMError(f"{self}: {e}") from e
         if resp.stop_reason == "refusal":
             raise PermanentError(f"{self}: request declined by the model")
+        if resp.stop_reason == "max_tokens":
+            raise LLMError(f"{self}: the reply was cut off at the token limit")
         text = "".join(b.text for b in resp.content if b.type == "text")
         if not text.strip():
             raise LLMError(f"{self}: empty reply (stop_reason={resp.stop_reason})")
@@ -304,12 +330,14 @@ class LLM:
         return str(self.providers[0])
 
     def complete_json(self, system: str, user: str, schema: dict | None = None,
-                      max_tokens: int = 4000) -> dict[str, Any]:
+                      max_tokens: int = 4000, temperature: float | None = None) -> dict[str, Any]:
+        """``temperature`` overrides LLM_TEMPERATURE for this call (low for grading, where repeatability matters)."""
         errors = []
+        temp = self.settings.llm_temperature if temperature is None else temperature
         for p in self.providers:
             def _call(p=p):
                 text = p.complete(system, user, schema=schema if schema is not None else {}, max_tokens=max_tokens,
-                                  temperature=self.settings.llm_temperature)
+                                  temperature=temp)
                 return extract_json(text)
             try:
                 result = with_retries(_call, attempts=2, base_delay=3, label=f"LLM {p}")

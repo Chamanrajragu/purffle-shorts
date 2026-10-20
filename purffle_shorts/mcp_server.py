@@ -46,7 +46,16 @@ TOOLS: list[dict] = [
                                                      "exactly, instead of writing a new one."},
          "also_languages": {"type": "array", "items": {"type": "string"},
                             "description": "Also make translated copies, e.g. [\"es\", \"hi\"]."},
-         "upload": {"type": "boolean", "description": "Upload to YouTube when done. Default false."},
+         "background_video": {"type": "string",
+                              "description": "Path of a video (or a folder of videos) to play under the whole "
+                                             "story, e.g. gameplay. Only videos the user may reuse."},
+         "layout": {"type": "string", "enum": ["full", "split"],
+                    "description": "With background_video: full = it is the picture; split = footage on top, "
+                                   "the background video below."},
+         "sound_effects": {"type": "boolean", "description": "Whooshes, pops and hits. Default true."},
+         "emoji": {"type": "boolean", "description": "An emoji per scene above the captions. Default true."},
+         "upload": {"type": "boolean", "description": "Publish when done: to YouTube and the other networks in "
+                                                      "PUBLISH_TO (TikTok, Instagram...). Default false."},
          "demo": {"type": "boolean", "description": "No-key demo: sample script and generated backgrounds."}}}},
     {"name": "draft_script",
      "description": "Write (and self-review) a video script without rendering it. Returns the script JSON, which "
@@ -59,7 +68,13 @@ TOOLS: list[dict] = [
                     "of its best moments, with captions. Only for videos the user owns or may reuse.",
      "inputSchema": {"type": "object", "required": ["source"], "properties": {
          "source": {"type": "string"}, "count": {"type": "integer", "minimum": 1, "maximum": 10},
-         "crop": {"type": "string", "enum": ["center", "blur"]}, "upload": {"type": "boolean"}}}},
+         "crop": {"type": "string", "enum": ["center", "blur", "face"],
+                  "description": "face = keep the speaker's face in frame (needs OpenCV)"},
+         "prompt": {"type": "string",
+                    "description": "What to look for, e.g. 'the funniest moments' or 'every tip about sleep'."},
+         "jump_cuts": {"type": "boolean", "description": "Cut long pauses and 'um'/'uh'. Default true."},
+         "zoom": {"type": "boolean", "description": "Punch-in zoom between sentences. Default true."},
+         "upload": {"type": "boolean"}}}},
     {"name": "plan_ideas",
      "description": "Brainstorm specific video ideas and add them to the idea queue that the autopilot uses first.",
      "inputSchema": {"type": "object", "properties": {
@@ -68,7 +83,8 @@ TOOLS: list[dict] = [
      "description": "List recent videos with id, status, title, YouTube link and retention score.",
      "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}}}},
     {"name": "upload_video",
-     "description": "Upload (or schedule, if publish times are set) a rendered video to YouTube by its id.",
+     "description": "Publish (or schedule, if publish times are set) a rendered video by its id: to YouTube and the "
+                    "other networks in PUBLISH_TO (TikTok, Instagram...). Retries only what didn't go out.",
      "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}}},
 ]
 
@@ -85,6 +101,14 @@ class Server:
             target_seconds=max(10, min(170, int(a["duration_seconds"]))) if a.get("duration_seconds") else None)
         if a.get("aspect") and aspect_resolution(a["aspect"]):
             s = replace(s, resolution=aspect_resolution(a["aspect"]))
+        if a.get("background_video"):
+            s = replace(s, background_video=str(a["background_video"]))
+        if a.get("layout") in ("full", "split"):
+            s = replace(s, background_layout=a["layout"])
+        for key, field_name in (("sound_effects", "sound_effects"), ("emoji", "caption_emoji"),
+                                ("jump_cuts", "clip_jump_cuts"), ("zoom", "clip_zoom")):
+            if isinstance(a.get(key), bool):
+                s = replace(s, **{field_name: a[key]})
         if a.get("demo"):
             s = replace(s, offline=True, upload=False)
         return s
@@ -111,8 +135,9 @@ class Server:
     def clip_video(self, a: dict) -> str:
         from .clipper import make_clips
         from .pipeline import Studio
-        results = make_clips(Studio(self.settings), a["source"], count=int(a.get("count") or 3),
-                             crop=a.get("crop") or "center", upload=bool(a.get("upload")))
+        results = make_clips(Studio(self._settings(a)), a["source"], count=int(a.get("count") or 3),
+                             crop=a.get("crop") or "center", upload=bool(a.get("upload")),
+                             brief=str(a.get("prompt") or ""))
         return "\n\n".join(_describe(r) for r in results) or "No clips were made."
 
     def plan_ideas(self, a: dict) -> str:
@@ -137,9 +162,13 @@ class Server:
         return "\n".join(out)
 
     def upload_video(self, a: dict) -> str:
-        from .pipeline import Studio
-        status = Studio(self.settings).upload_record(int(a["id"]))
-        return f"Video #{a['id']}: {status}"
+        from .pipeline import Result, Studio
+        r = Result(True)
+        status = Studio(self.settings).upload_record(int(a["id"]), r)
+        posts = "".join(f"\n  {p}: {v.get('status')}" + (f" {v['url']}" if v.get("url") else "")
+                        + (f" ({v['error']})" if v.get("error") else "") for p, v in r.posts.items())
+        link = f"\n  https://youtube.com/shorts/{r.youtube_id}" if r.youtube_id else ""
+        return f"Video #{a['id']}: {status}{link}{posts}"
 
     # ---------------------------------------------------------------- protocol
     def handle(self, msg: dict) -> dict | None:
@@ -207,7 +236,11 @@ def _describe(r) -> str:
     if r.video:
         parts.append(f"  file: {r.video}")
     if r.score is not None:
-        parts.append(f"  retention score: {r.score}/100")
+        reason = getattr(r, "reason", "")
+        parts.append(f"  {'virality' if reason else 'retention'} score: {r.score}/100" + (f" ({reason})" if reason else ""))
     if r.youtube_id:
         parts.append(f"  https://youtube.com/shorts/{r.youtube_id}")
+    for p, v in (getattr(r, "posts", None) or {}).items():
+        parts.append(f"  {p}: {v.get('status')}" + (f" {v['url']}" if v.get("url") else "")
+                     + (f" ({v['error']})" if v.get("error") else ""))
     return "\n".join(parts)

@@ -41,6 +41,8 @@ jobs:
           tags: purffle-shorts:ci
       - name: Smoke test
         run: docker run --rm purffle-shorts:ci --version
+      - name: docker-compose.yml is valid
+        run: touch .env && docker compose config -q
 
   package:
     runs-on: ubuntu-latest

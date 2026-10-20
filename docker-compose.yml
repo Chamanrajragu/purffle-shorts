@@ -1,0 +1,32 @@
+# PurffleShorts on a server, NAS or any machine with Docker.
+#
+#   cp .env.example .env            # add your keys, and set STUDIO_PASSWORD
+#   docker compose up -d            # the Studio: http://localhost:8765
+#   docker compose --profile autopilot up -d    # also run the upload autopilot
+#
+# Videos, the database and your settings live in this folder (mounted at /work). Authorize YouTube once on
+# a computer with a browser (purffle-shorts auth) and copy token.json here.
+# To build the image from this checkout instead of pulling it, run:  docker compose build
+services:
+  studio:
+    image: ghcr.io/chamanrajragu/purffle-shorts:latest
+    build: .
+    command: ["studio", "--host", "0.0.0.0", "--no-browser"]
+    env_file: .env
+    volumes:
+      - .:/work
+    # Only this machine can reach it. To open it to your network, change this to "8765:8765"; the Studio
+    # then asks for STUDIO_PASSWORD.
+    ports:
+      - "127.0.0.1:8765:8765"
+    restart: unless-stopped
+
+  autopilot:
+    image: ghcr.io/chamanrajragu/purffle-shorts:latest
+    build: .
+    command: ["run"]
+    env_file: .env
+    volumes:
+      - .:/work
+    restart: unless-stopped
+    profiles: ["autopilot"]

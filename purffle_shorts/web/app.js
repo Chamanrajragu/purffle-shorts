@@ -63,6 +63,9 @@ async function get(url) {
 async function post(url, body) {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "X-Studio-Token": TOKEN }, body: JSON.stringify(body || {}) });
   const data = await r.json().catch(() => ({}));
+  if (r.status === 403 && data.error === "bad token") {  // the server restarted with a new session token
+    throw new Error("The Studio was restarted. Reload this page to continue (your form and draft are kept).");
+  }
   if (!r.ok) throw new Error(data.error || r.statusText);
   return data;
 }
@@ -70,7 +73,7 @@ async function post(url, body) {
 const S = {
   info: null, options: null, jobs: [], view: "create",
   form: store.get("form", {}), draft: store.get("draft", null), createJob: store.get("createJob", null),
-  lib: { status: "", q: "" }, seen: new Map(), voices: {},
+  lib: { status: "", q: "" }, seen: new Map(), voices: {}, live: false,
 };
 
 // ------------------------------------------------------------------ helpers
@@ -123,7 +126,8 @@ async function boot() {
     aspect: ["9:16", "16:9", "1:1", "4:5"].includes(i.aspect) ? i.aspect : "9:16", caption_style: i.caption_style,
     caption_position: i.caption_position, grade: i.grade, transition: i.transition, review: i.review, tts: i.tts,
     voice: "", voice_b: "", provider: "", model: "", also_langs: (i.also_languages || []).join(", "), music: true,
-    upload: false, offline: !i.llm_ok, visuals: i.visuals,
+    upload: false, offline: !i.llm_ok, visuals: i.visuals, background: "", layout: "full", sfx: true, emphasis: true,
+    emoji: true,
   }, S.form);
   if (!i.llm_ok) S.form.offline = true;
   status();
@@ -135,7 +139,8 @@ async function boot() {
   $("#drawer").addEventListener("click", e => { if (e.target.closest("[data-close]")) closeDrawer(); });
   route();
   tick();
-  setInterval(tick, 1500);
+  connectEvents();
+  setInterval(() => { if (!S.live) tick(); }, 1500);  // polling only while the live stream is down
   setInterval(async () => { try { S.info = await get("/api/info"); status(); } catch { /* server restarting */ } }, 15000);
 }
 
@@ -160,10 +165,44 @@ function route() {
   window.scrollTo(0, 0);
 }
 
-// ------------------------------------------------------------------ jobs polling
+// ------------------------------------------------------------------ jobs: live stream, polling as fallback
+// While the server is unreachable (stopped, restarting), retry less and less often, up to every 30 s.
+const backoff = n => Math.min(30000, 1500 * 2 ** Math.min(n, 5));
+
+function connectEvents() {
+  if (!window.EventSource) return;
+  const es = new EventSource("/api/events");
+  es.addEventListener("jobs", e => {
+    S.live = true;
+    S.esFails = 0;
+    let jobs;
+    try { jobs = JSON.parse(e.data); } catch { return; }
+    applyJobs(jobs);
+  });
+  es.onerror = () => {  // polling covers the gap; reconnect ourselves so a dead server isn't hammered
+    S.live = false;
+    es.close();
+    S.esFails = (S.esFails || 0) + 1;
+    setTimeout(connectEvents, backoff(S.esFails));
+  };
+}
+
 async function tick() {
+  if (Date.now() < (S.retryAt || 0)) return;
   let jobs;
-  try { jobs = await get("/api/jobs"); } catch { return; }
+  try {
+    jobs = await get("/api/jobs");
+    S.fails = 0;
+    S.retryAt = 0;
+  } catch {
+    S.fails = (S.fails || 0) + 1;
+    S.retryAt = Date.now() + backoff(S.fails);
+    return;
+  }
+  applyJobs(jobs);
+}
+
+function applyJobs(jobs) {
   S.jobs = jobs;
   const active = jobs.filter(j => j.status === "running" || j.status === "queued").length;
   const qb = $("#qbadge");
@@ -225,7 +264,8 @@ function payload(extra = {}) {
     caption_style: f.caption_style, caption_position: f.caption_position, grade: f.grade, transition: f.transition,
     tts: f.tts, voice: f.voice, voice_b: f.voice_b, provider: f.provider, model: f.model, review: f.review,
     also_langs: f.also_langs, music: f.music, upload: f.upload && S.info.upload && !f.offline, offline: f.offline,
-    visuals: f.visuals,
+    visuals: f.visuals, background: f.background || "", layout: f.layout, sfx: f.sfx !== false,
+    emphasis: f.emphasis !== false, emoji: f.emoji !== false,
   };
   if (f.mode === "topic") p.topic = f.topic.trim();
   if (f.mode === "url") p.url = f.url.trim();
@@ -315,7 +355,18 @@ function drawForm() {
       <div class="field"><label>Transitions</label>${sel("transition", o.transitions.map(t => [t, t]), f.transition)}</div>
     </div>
     <div class="field"><label>Footage & images</label><div class="checks-inline">${o.visuals.map(v => `<label><input type="checkbox" data-visual="${v}"${(f.visuals || []).includes(v) ? " checked" : ""}>${{ pexels: "Pexels", pixabay: "Pixabay", local: "My media folder", pollinations: "AI images (Pollinations, key advised)", "openai-images": "OpenAI images" }[v] || v}</label>`).join("")}</div></div>
-    <div class="field"><label class="switch"><input type="checkbox" data-f="music"${f.music ? " checked" : ""}><span>Background music<small>From your music folder, ducked under the voice</small></span></label></div>
+    <div class="field"><label>Background video</label>${(o.backgrounds || []).length
+      ? sel("background", [["", "None: footage for every scene"], ...o.backgrounds.map(b => [b.path, b.name])], f.background)
+      : `<p class="hint">Put gameplay or other videos you may reuse in <span class="mono">media/backgrounds/</span> (or set BACKGROUND_VIDEO) to play one under stories.</p>`}</div>
+    ${f.background ? `<div class="field"><label>Layout</label>${seg("layout", [["full", "Full screen"], ["split", "Split: footage on top"]], f.layout)}</div>` : ""}
+    <div class="grid2">
+      <label class="switch"><input type="checkbox" data-f="music"${f.music ? " checked" : ""}><span>Background music<small>From your music folder, ducked under the voice</small></span></label>
+      <label class="switch"><input type="checkbox" data-f="sfx"${f.sfx !== false ? " checked" : ""}><span>Sound effects<small>Whoosh on scene changes, pop per message</small></span></label>
+    </div>
+    <div class="grid2">
+      <label class="switch"><input type="checkbox" data-f="emphasis"${f.emphasis !== false ? " checked" : ""}><span>Highlight key words<small>Numbers and the words that matter, in colour</small></span></label>
+      <label class="switch"><input type="checkbox" data-f="emoji"${f.emoji !== false ? " checked" : ""}><span>Emoji<small>One per scene pops up above the captions</small></span></label>
+    </div>
   </section>
 
   <section class="card">
@@ -327,7 +378,7 @@ function drawForm() {
     <div class="field"><label>Script Doctor</label>${seg("review", [["off", "Off"], ["score", "Score only"], ["rewrite", "Score & rewrite"]], f.review)}<p class="hint">A second AI pass grades the hook and pacing, then rewrites weak lines.</p></div>
     <div class="field"><label>Also make it in</label><input type="text" data-f="also_langs" value="${esc(f.also_langs)}" placeholder="e.g. es, hi, pt — translated copies, same footage"></div>
     <div class="grid2">
-      <label class="switch"><input type="checkbox" data-f="upload"${f.upload ? " checked" : ""}${S.info.upload ? "" : " disabled"}><span>Upload to YouTube<small>${S.info.upload ? `${S.info.privacy}, or scheduled` : "disabled in .env (UPLOAD=false)"}</small></span></label>
+      <label class="switch"><input type="checkbox" data-f="upload"${f.upload ? " checked" : ""}${S.info.upload ? "" : " disabled"}><span>Publish when done<small>${S.info.upload ? publishTo() : "disabled in .env (UPLOAD=false)"}</small></span></label>
       <label class="switch"><input type="checkbox" data-f="offline"${f.offline ? " checked" : ""}><span>Demo mode<small>No keys: sample script, generated backgrounds</small></span></label>
     </div>
   </section>
@@ -367,6 +418,7 @@ function bindForm() {
       S.form[el.dataset.f] = el.type === "checkbox" ? el.checked : el.type === "range" ? +el.value : el.value;
       if (el.dataset.f === "duration") $("#dur-out").textContent = el.value + "s";
       if (el.dataset.f === "language" || el.dataset.f === "tts") loadVoices();
+      if (el.dataset.f === "background") { saveForm(); return drawForm(); }
     }
     saveForm();
   });
@@ -410,20 +462,47 @@ function drawLive() {
   const running = j.status === "running" || j.status === "queued";
   const name = j.status === "queued" ? "Waiting for the previous job" : j.status === "failed" ? "Failed"
     : j.status === "done" ? "Finished" : (STAGES[idx] || [0, "Starting"])[1];
+  const sig = `${j.id}:${j.status}:${j.stage}`;
+  if (box.dataset.sig === sig && j.status === "running" && $("#live-pct", box)) {  // just the moving parts
+    $("#live-pct", box).textContent = progressText(j);
+    $("#live-msg", box).textContent = j.message || "";
+    $("#live-bar", box).style.width = Math.min(100, j.pct) + "%";
+    $("#live-log", box).textContent = j.log.slice(-8).join("\n");
+    return;
+  }
+  box.dataset.sig = sig;
   box.innerHTML = `<section class="card live ${j.status}">
     <div class="actions"><span class="status-pill ${j.status}">${j.kind === "draft" ? "Drafting" : "Making"} · ${j.status}</span>
+      ${running ? `<button class="btn ghost sm" data-cancel="${j.id}" type="button">Cancel</button>` : ""}
       ${!running ? `<button class="btn ghost sm" id="live-close" type="button" aria-label="Dismiss">${I.x}</button>` : ""}</div>
     <h3>${esc(r.title || j.label)}</h3>
     ${running ? `<div class="stages">${STAGES.map(([k], n) => `<span class="${n < idx ? "done" : n === idx ? "now" : ""}" title="${k}"></span>`).join("")}</div>
-      <div class="stage-name"><b>${esc(name)}</b><span>${esc(j.message || "")}</span></div>` : ""}
+      <div class="stage-name"><b>${esc(name)}</b><span id="live-pct">${esc(progressText(j))}</span></div>
+      <div class="pbar"><i id="live-bar" data-w="${j.pct}"></i></div>
+      <p class="hint" id="live-msg">${esc(j.message || "")}</p>` : ""}
     ${j.status === "done" && r.id ? `<div class="actions"><button class="btn primary sm" type="button" data-open="${r.id}">${I.play}Watch</button>
       ${r.score != null ? `<span class="chip ${r.score >= 75 ? "ok" : r.score >= 55 ? "accent" : "bad"}">Retention score ${r.score}</span>` : ""}
       <span class="chip">${esc(r.status)}</span>${(r.variants || []).map(v => `<span class="chip ${v.ok ? "ok" : "bad"}">${esc(v.language)} ${v.ok ? "✓" : "✗"}</span>`).join("")}</div>` : ""}
     ${j.status === "failed" ? `<div class="err">${esc(r.error || j.message)}</div>` : ""}
     ${running ? `<pre class="log" id="live-log">${esc(j.log.slice(-8).join("\n"))}</pre>` : ""}
   </section>`;
+  paint(box);
   const c = $("#live-close");
   if (c) c.onclick = () => { S.createJob = null; store.set("createJob", null); drawSide(); };
+  const x = $("[data-cancel]", box);
+  if (x) x.onclick = () => post(`/api/jobs/${x.dataset.cancel}/cancel`).then(() => toast("Stopping…", "info", 2500)).catch(e => toast(esc(e.message), "bad"));
+}
+
+function progressText(j) {
+  if (j.status !== "running") return j.message || "";
+  return `${j.pct}%` + (j.eta != null ? ` · about ${fmtSec(Math.max(1, j.eta))} left` : "");
+}
+
+const RUBRIC = [["hook", "Hook"], ["curiosity", "Curiosity"], ["pacing", "Pacing"], ["specificity", "Specifics"], ["payoff", "Payoff"], ["accuracy", "Accuracy"]];
+function rubricHtml(r) {
+  if (!r || !RUBRIC.some(([k]) => r[k] != null)) return "";
+  return `<div class="rubric">${RUBRIC.filter(([k]) => r[k] != null).map(([k, label]) =>
+    `<div><span>${label}</span><span class="bar"><i data-w="${r[k] * 10}"></i></span><b>${r[k]}</b></div>`).join("")}</div>`;
 }
 
 function drawEditor() {
@@ -450,7 +529,7 @@ function drawEditor() {
     <div class="actions"><h2>Script</h2><span class="chip">${esc(d.style)}</span><span class="chip">${esc(d.language)}</span>
       <span class="wc" id="wc">${total} words · ~${Math.round(total / 2.6)}s</span>
       <button class="btn ghost sm" id="discard" type="button">${I.trash}Discard</button></div>
-    ${d.score != null ? `<div class="score"><div class="ring" data-p="${d.score}"><b>${d.score}</b></div><div><b>Retention score</b>${d.review && d.review.length ? `<ul>${d.review.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="hint">No issues found.</p>`}</div></div>` : ""}
+    ${d.score != null ? `<div class="score"><div class="ring" data-p="${d.score}"><b>${d.score}</b></div><div class="grow"><b>Retention score</b>${rubricHtml(d.rubric)}${d.review && d.review.length ? `<ul>${d.review.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="hint">No issues found.</p>`}</div></div>` : ""}
     <div class="field"><label>Title</label><input type="text" data-k="title" value="${esc(d.title)}" maxlength="90"></div>
     <div class="field"><label>On-screen hook</label><input type="text" data-k="hook_text" value="${esc(d.hook_text)}" maxlength="48"></div>
     ${multi ? `<div class="grid2"><div class="field"><label>Speaker A</label><input type="text" data-cast="0" value="${esc((d.cast || [])[0] || "")}"></div>
@@ -547,6 +626,29 @@ async function drawLibrary() {
     </button>`).join("");
 }
 
+function publishTo() {
+  const name = { youtube: "YouTube", tiktok: "TikTok", instagram: "Instagram", facebook: "Facebook", threads: "Threads", x: "X", linkedin: "LinkedIn", bluesky: "Bluesky", pinterest: "Pinterest" };
+  const list = (S.info.publish_to || ["youtube"]).map(p => name[p] || p).join(", ");
+  return `${list}${(S.info.publish_to || ["youtube"]).includes("youtube") ? ` · ${S.info.privacy}, or scheduled` : ""}`;
+}
+// Where a video still has to go: YouTube until it has an id, every other network until it is out.
+const POSTED = new Set(["posted", "scheduled", "submitted", "draft"]);
+function toPublish(v, m) {
+  const done = m.published || {};
+  return (S.info.publish_to || ["youtube"]).filter(p => p === "youtube" ? !v.youtube_id : !POSTED.has((done[p] || {}).status));
+}
+function postsHtml(published) {
+  const items = Object.entries(published || {});
+  if (!items.length) return "";
+  const name = { tiktok: "TikTok", instagram: "Instagram", facebook: "Facebook", threads: "Threads", x: "X", linkedin: "LinkedIn", bluesky: "Bluesky", pinterest: "Pinterest" };
+  return `<div class="chips posts">${items.map(([p, r]) => {
+    const tone = POSTED.has(r.status) ? "ok" : r.status === "skipped" ? "" : "bad";
+    const label = `${esc(name[p] || p)} · ${esc(r.status)}`;
+    const tip = r.error ? ` title="${esc(r.error)}"` : "";
+    return r.url && /^https:\/\//.test(r.url) ? `<a class="chip ${tone}" href="${esc(r.url)}" target="_blank" rel="noopener"${tip}>${label} ↗</a>` : `<span class="chip ${tone}"${tip}>${label}</span>`;
+  }).join("")}</div>`;
+}
+
 async function openVideo(id) {
   let v;
   try { v = await get("/api/videos/" + id); } catch (e) { return toast(esc(e.message), "bad"); }
@@ -563,13 +665,14 @@ async function openVideo(id) {
       <div class="chips"><span class="chip ${STATUS_CHIP[v.status] || ""}">${esc(v.status)}</span>${v.style ? `<span class="chip">${esc(v.style)}</span>` : ""}${v.language ? `<span class="chip">${esc(v.language)}</span>` : ""}${v.parent_id ? `<span class="chip" data-open="${v.parent_id}">translation of #${v.parent_id}</span>` : ""}</div>
       <h2>${esc(v.title)}</h2>
       ${v.youtube_id ? `<p><a class="btn sm" href="https://youtube.com/shorts/${esc(v.youtube_id)}" target="_blank" rel="noopener">${I.yt}Open on YouTube</a>${v.publish_at ? ` <span class="muted">goes public ${esc(new Date(v.publish_at).toLocaleString())}</span>` : ""}</p>` : ""}
+      ${postsHtml(m.published)}
       ${v.error ? `<div class="banner">${I.info}<p>${esc(v.error)}</p></div>` : ""}
       <div class="actions">
-        ${v.video && !v.youtube_id ? `<button class="btn primary sm" type="button" id="d-up">${I.upload}Upload</button>` : ""}
+        ${v.video && toPublish(v, m).length ? `<button class="btn primary sm" type="button" id="d-up">${I.upload}Publish${toPublish(v, m).length < (S.info.publish_to || []).length ? " the rest" : ""}</button>` : ""}
         ${sc ? `<button class="btn sm" type="button" id="d-edit">${I.pen}Edit & re-render</button>` : ""}
         <button class="btn sm danger" type="button" id="d-del">${I.trash}Delete</button>
       </div>
-      ${v.score != null ? `<div class="score"><div class="ring" data-p="${v.score}"><b>${v.score}</b></div><div><b>Retention score</b>${review.length ? `<ul>${review.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}</div></div>` : ""}
+      ${v.score != null ? `<div class="score"><div class="ring" data-p="${v.score}"><b>${v.score}</b></div><div class="grow"><b>Retention score</b>${rubricHtml(m.rubric)}${review.length ? `<ul>${review.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}</div></div>` : ""}
       <dl class="kv">
         <dt>Length</dt><dd>${fmtSec(v.duration)}</dd>
         ${m.resolution ? `<dt>Size</dt><dd>${esc(m.resolution)}</dd>` : ""}
@@ -632,15 +735,15 @@ function drawJobs() {
     const stage = (STAGES.find(([k]) => k === j.stage) || [0, j.stage])[1];
     return `<div class="job ${j.status}">
       <div class="job-top"><span class="kind">${KIND_ICON[j.kind] || I.film}</span>
-        <div class="t"><b>${esc(r.title || j.label)}</b><small><span class="status-pill ${j.status}">${j.status}</span>${running && stage ? ` · ${esc(stage)}` : ""}${running && j.message ? ` · ${esc(j.message)}` : ""}${took != null ? ` · ${fmtSec(took)}` : ""}</small></div>
-        ${j.status === "queued" ? `<button class="btn ghost sm" type="button" data-cancel="${j.id}">Cancel</button>` : ""}
+        <div class="t"><b>${esc(r.title || j.label)}</b><small><span class="status-pill ${j.status}">${j.status}</span>${running && stage ? ` · ${esc(stage)}` : ""}${running ? ` · ${esc(progressText(j))}` : ""}${running && j.message ? ` · ${esc(j.message)}` : ""}${took != null ? ` · ${fmtSec(took)}` : ""}</small></div>
+        ${j.status === "queued" || running ? `<button class="btn ghost sm" type="button" data-cancel="${j.id}">Cancel</button>` : ""}
         ${j.status === "done" && r.id ? `<button class="btn sm" type="button" data-open="${r.id}">${I.play}Watch</button>` : ""}
         ${j.status === "done" && j.kind === "draft" ? `<a class="btn sm" href="#create">${I.pen}Edit</a>` : ""}
         <button class="btn ghost sm" type="button" data-log="${j.id}">${open ? "Hide log" : "Log"}</button>
       </div>
       ${j.status !== "cancelled" ? `<div class="pbar"><i data-w="${j.status === "failed" ? 100 : j.pct}"></i></div>` : ""}
       ${r.error ? `<div class="err">${esc(r.error)}</div>` : ""}
-      ${r.clips ? `<div class="chips">${r.clips.map(c => `<span class="chip ${c.ok ? "ok" : "bad"}"${c.id ? ` data-open="${c.id}"` : ""}>${esc(c.title || "clip")}</span>`).join("")}</div>` : ""}
+      ${r.clips ? `<div class="chips">${r.clips.map(c => `<span class="chip ${c.ok ? "ok" : "bad"}"${c.id ? ` data-open="${c.id}"` : ""}${c.reason ? ` title="${esc(c.reason)}"` : ""}>${esc(shortTitle(c.title) || "clip")}${c.score != null ? ` · <b>${c.score}</b>` : ""}</span>`).join("")}</div>` : ""}
       ${open ? `<pre class="log" data-id="${j.id}">${esc(j.log.join("\n")) || "…"}</pre>` : ""}
     </div>`;
   }).join("");
@@ -712,7 +815,8 @@ async function refreshInfo() { try { S.info = await get("/api/info"); status(); 
 
 // ------------------------------------------------------------------ CLIP
 function viewClip() {
-  const c = store.get("clip", { source: "", count: 3, crop: "center", upload: false });
+  const c = Object.assign({ source: "", count: 3, crop: "center", upload: false, brief: "", jump_cuts: true, zoom: true },
+    store.get("clip", {}));
   $("#main").innerHTML = `
   <div class="page-head"><div><h1>Clip a long video</h1><p>Turn a podcast, interview, talk or stream into Shorts of its best moments.</p></div></div>
   <div class="create">
@@ -720,33 +824,51 @@ function viewClip() {
       <div class="field"><label>Video file or URL</label><input type="text" id="c-src" value="${esc(c.source)}" placeholder="/Users/me/Videos/podcast.mp4  or  https://…"><p class="hint">Local files work out of the box. URLs need <span class="mono">pip install yt-dlp</span>. Only clip videos you own or may reuse.</p></div>
       <div class="grid2">
         <div class="field"><label>Clips</label><div class="range-row"><input type="range" id="c-n" min="1" max="10" value="${c.count}"><output id="c-out">${c.count}</output></div></div>
-        <div class="field"><label>Framing</label>${seg("crop", [["center", "Fill (crop)"], ["blur", "Fit + blur"]], c.crop)}</div>
+        <div class="field"><label>Framing</label>${seg("crop", [["center", "Fill (crop)"], ["face", "Follow face"], ["blur", "Fit + blur"]], c.crop)}</div>
+      </div>
+      <div class="field"><label>What to look for <span class="muted">(optional)</span></label><input type="text" id="c-brief" value="${esc(c.brief)}" placeholder="e.g. the funniest moments, or every tip about sleep"><p class="hint">The AI only picks moments that fit. Needs an AI model.</p></div>
+      <div class="grid2">
+        <label class="switch"><input type="checkbox" id="c-cuts"${c.jump_cuts ? " checked" : ""}><span>Cut pauses and ums<small>Tighter pacing, lips stay in sync</small></span></label>
+        <label class="switch"><input type="checkbox" id="c-zoom"${c.zoom ? " checked" : ""}><span>Punch-in zoom<small>Changes framing between sentences</small></span></label>
       </div>
       <div class="field"><label class="switch"><input type="checkbox" id="c-up"${c.upload ? " checked" : ""}${S.info.upload ? "" : " disabled"}><span>Upload the clips when done</span></label></div>
       <div class="actions end"><button class="btn primary" id="c-go" type="button">${I.scissors}Find the best moments</button></div>
     </section>
     <section class="card"><h2>How it works</h2><div class="list">
       <div class="item"><span class="chip accent">1</span><div class="grow"><b>Transcribe</b><small>Word-level timing with faster-whisper (free, local) or OpenAI.</small></div></div>
-      <div class="item"><span class="chip accent">2</span><div class="grow"><b>AI picks the moments</b><small>Self-contained, 20–58 s, a hook in the first line and a payoff at the end. Each gets a title and a retention score.</small></div></div>
-      <div class="item"><span class="chip accent">3</span><div class="grow"><b>Vertical, captioned, loud enough</b><small>9:16 crop or blurred fit, word-by-word captions, hook title, loudness to −14 LUFS.</small></div></div>
+      <div class="item"><span class="chip accent">2</span><div class="grow"><b>AI picks the moments</b><small>Self-contained, 20–58 s, a hook in the first line and a payoff at the end. Each gets a title and a virality score with the reason.</small></div></div>
+      <div class="item"><span class="chip accent">3</span><div class="grow"><b>Edited, vertical, captioned</b><small>Pauses and ums cut, punch-in zoom, face-following or blurred-fit 9:16, word-by-word captions, loudness to −14 LUFS.</small></div></div>
     </div></section>
   </div>`;
   const save = () => store.set("clip", c);
   $("#c-n").oninput = e => { c.count = +e.target.value; $("#c-out").textContent = c.count; save(); };
   $("#c-src").oninput = e => { c.source = e.target.value; save(); };
   $("#c-up").onchange = e => { c.upload = e.target.checked; save(); };
+  $("#c-brief").oninput = e => { c.brief = e.target.value; save(); };
+  $("#c-cuts").onchange = e => { c.jump_cuts = e.target.checked; save(); };
+  $("#c-zoom").onchange = e => { c.zoom = e.target.checked; save(); };
   $("#main").addEventListener("click", e => {
     const b = e.target.closest("[data-seg=crop]");
     if (b) { c.crop = b.dataset.v; $$("[data-seg=crop]").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.v === c.crop))); save(); }
   });
   $("#c-go").onclick = async () => {
     if (!c.source.trim()) return toast("Give a video file path or URL.", "bad");
-    try { await post("/api/clip", { source: c.source.trim(), count: c.count, crop: c.crop, upload: c.upload }); toast("Clipping… follow it in Queue.", "info"); tick(); }
+    try { await post("/api/clip", { source: c.source.trim(), count: c.count, crop: c.crop, upload: c.upload, brief: c.brief.trim(), jump_cuts: c.jump_cuts, zoom: c.zoom }); toast("Clipping… follow it in Queue.", "info"); tick(); }
     catch (e) { toast(esc(e.message), "bad"); }
   };
 }
 
 // ------------------------------------------------------------------ CHANNEL
+function calibrationCard(c) {
+  const rho = c.score_vs_views;
+  const tone = rho == null ? "" : rho >= 0.5 ? "ok" : rho >= 0.25 ? "accent" : "bad";
+  return `<section class="card"><h2>Do the predictions hold up?</h2>
+    <p>${rho != null ? `<span class="chip ${tone}">ρ = ${rho.toFixed(2)}</span> ` : ""}Retention score vs real views: ${esc(c.verdict)}.
+      <span class="muted">Spearman rank correlation over ${c.scored} scored video(s) that have been public for 2+ days.</span></p>
+    ${c.hours.length ? `<p class="muted">Best publish hours (your time): ${c.hours.map(h => `<b>${String(h.hour).padStart(2, "0")}:00</b> ${fmtNum(h.median_views)}`).join(" · ")}</p>` : ""}
+  </section>`;
+}
+
 async function viewChannel() {
   const main = $("#main");
   let ch;
@@ -765,6 +887,7 @@ async function viewChannel() {
     <div class="kpi"><small>Total views</small><b>${fmtNum(i.views)}</b></div>
     <div class="kpi"><small>Ideas queued</small><b>${fmtNum(i.ideas)}</b></div>
   </div>
+  ${ch.calibration && ch.calibration.videos ? calibrationCard(ch.calibration) : ""}
   ${ch.videos.length ? `<div class="grid2">
     <section class="card"><h2>Average views by format</h2>${ch.by_style.map(s => `<div class="hbar"><span>${esc(s.style)}</span><span class="track"><i data-w="${100 * s.avg_views / top}"></i></span><span class="num">${fmtNum(s.avg_views)}</span></div>`).join("")}</section>
     <section class="card"><h2>Best performer</h2>${(() => { const v = ch.videos[0]; return `<h3>${esc(v.title)}</h3><p class="muted">${fmtNum(v.views)} views · ${fmtNum(v.likes)} likes · ${esc(v.style || "")}</p><button class="btn sm" type="button" data-open="${v.id}">${I.play}Open</button>`; })()}</section>

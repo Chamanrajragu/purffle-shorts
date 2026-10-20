@@ -28,7 +28,7 @@ class FakeLLM:
     def __init__(self, settings):
         self.providers, self.label = [object()], "fake:model"
 
-    def complete_json(self, system, user, schema=None, max_tokens=4000):
+    def complete_json(self, system, user, schema=None, max_tokens=4000, temperature=None):
         assert "JSON" in system
         return json.loads(json.dumps(SCRIPT))
 

@@ -1,24 +1,26 @@
 <div align="center">
 
-# PurffleShorts — Free AI YouTube Shorts Generator & Upload Autopilot
+# PurffleShorts — Free AI YouTube Shorts Generator, Faceless Video Maker & Opus Clip Alternative
 
 **English** · [简体中文](https://github.com/Chamanrajragu/purffle-shorts/blob/main/README.zh-CN.md) · [Español](https://github.com/Chamanrajragu/purffle-shorts/blob/main/README.es.md) · [Português](https://github.com/Chamanrajragu/purffle-shorts/blob/main/README.pt-BR.md) · [हिन्दी](https://github.com/Chamanrajragu/purffle-shorts/blob/main/README.hi.md) · [日本語](https://github.com/Chamanrajragu/purffle-shorts/blob/main/README.ja.md)
 
-**An open-source AI video generator for YouTube Shorts, TikTok and Instagram Reels. Give it a topic, a web page, a Reddit post or a long podcast, and it makes finished vertical videos (script, voiceover, footage, captions), then uploads or schedules them on YouTube.**<br>
-It writes with the AI model you choose (GPT, Claude, Gemini, Llama through Ollama, DeepSeek, Grok, Mistral or any OpenAI-compatible API) and has a second AI pass grade and rewrite the script. Free neural voices read it (one or two speakers), stock footage or AI images illustrate every sentence, and the words appear as animated captions, a text-message screen or a Reddit-style post card. It renders with ffmpeg in 9:16, 16:9, 1:1 or 4:5, runs on your own computer, and also works from Claude Desktop, Claude Code and Cursor through MCP.
+**An open-source AI video generator for YouTube Shorts, TikTok and Instagram Reels. Give it a topic, a web page, a Reddit post or a long podcast, and it makes finished vertical videos (script, voiceover, footage, captions, sound effects), then uploads or schedules them on YouTube, TikTok and Instagram.**<br>
+YouTube automation in Python that runs on your own computer. The AI model you choose writes the script (GPT, Claude, Gemini, Llama through Ollama, DeepSeek, Grok, Mistral or any OpenAI-compatible API), using the phrases people actually search for on YouTube, and a second AI pass grades and rewrites it. Free neural voices read it, and stock footage, AI images or your own gameplay video fill the screen. Captions appear word by word, with key words in colour and an emoji per scene. It makes **Reddit story videos**, **fake text message videos** and **two-voice dialogues**, and **clips podcasts into Shorts** with jump cuts and face tracking. Free, MIT-licensed, no watermark. It also works from Claude Desktop, Claude Code and Cursor through MCP.
 
 [![CI](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml/badge.svg)](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml)
 [![Python 3.10–3.13](https://img.shields.io/badge/python-3.10–3.13-3776AB?logo=python&logoColor=white)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](https://github.com/Chamanrajragu/purffle-shorts/blob/main/LICENSE)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb)
 [![GitHub stars](https://img.shields.io/github/stars/Chamanrajragu/purffle-shorts?style=social)](https://github.com/Chamanrajragu/purffle-shorts/stargazers)
 <br>
 [![LLMs](https://img.shields.io/badge/LLMs-GPT_·_Claude_·_Gemini_·_Llama_·_DeepSeek_·_Grok-412991)](#-ai-models)
 [![Voices](https://img.shields.io/badge/voices-322_free_·_75_languages-0ea5e9)](#%EF%B8%8F-voices)
-[![Formats](https://img.shields.io/badge/formats-text_stories_·_dialogues_·_Reddit_stories-f59e0b)](#-formats)
-[![YouTube](https://img.shields.io/badge/YouTube-auto_upload_%26_schedule-FF0000?logo=youtube&logoColor=white)](#-publishing--scheduling)
+[![Formats](https://img.shields.io/badge/formats-Reddit_stories_·_text_stories_·_dialogues-f59e0b)](#-formats)
+[![Clipping](https://img.shields.io/badge/podcast_clipping-jump_cuts_·_face_tracking-8b5cf6)](#%EF%B8%8F-clip-podcasts-into-shorts-free-opus-clip-alternative)
+[![Publish](https://img.shields.io/badge/auto_upload-YouTube_·_TikTok_·_Instagram-FF0000?logo=youtube&logoColor=white)](#-publishing--scheduling)
 [![MCP](https://img.shields.io/badge/MCP-Claude_Desktop_·_Cursor-d97757)](#-use-it-from-claude-and-other-ai-apps-mcp)
 
-[Features](#-features) · [Use cases](#-use-cases) · [Compare](#%EF%B8%8F-how-it-compares) · [Quick start](#-quick-start) · [Formats](#-formats) · [Clip long videos](#%EF%B8%8F-clip-long-videos-into-shorts) · [AI models](#-ai-models) · [Voices](#%EF%B8%8F-voices) · [Publishing](#-publishing--scheduling) · [Studio](#%EF%B8%8F-studio-web-app) · [MCP](#-use-it-from-claude-and-other-ai-apps-mcp) · [FAQ](#-faq)
+[Features](#-features) · [Quick start](#-quick-start) · [Colab](#%EF%B8%8F-run-it-in-google-colab) · [Formats](#-formats) · [Reddit & gameplay](#-reddit-story-videos-over-gameplay-split-screen) · [Clip podcasts](#%EF%B8%8F-clip-podcasts-into-shorts-free-opus-clip-alternative) · [SEO](#-seo-built-in-real-youtube-searches-localised-titles-captions) · [AI models](#-ai-models) · [Voices](#%EF%B8%8F-voices) · [Publishing](#-publishing--scheduling) · [Studio](#%EF%B8%8F-studio-web-app) · [API](#-rest-api-and-automation-n8n-zapier-cron) · [MCP](#-use-it-from-claude-and-other-ai-apps-mcp) · [Compare](#%EF%B8%8F-how-it-compares) · [FAQ](#-faq)
 
 <img src="https://raw.githubusercontent.com/Chamanrajragu/purffle-shorts/main/docs/hero.gif" alt="Three Shorts made by PurffleShorts playing side by side: a facts video about flamingos with word-highlighted captions, a two-voice dialogue about octopuses with speaker name tags, and a text-message story on an animated phone screen" width="770">
 
@@ -31,6 +33,8 @@ Free Microsoft neural voices, AI images from Pollinations (for the octopus video
 uvx --from git+https://github.com/Chamanrajragu/purffle-shorts purffle-shorts demo --style chat
 ```
 
+…or **[open it in Google Colab](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb)** and make videos in your browser, with nothing to install.
+
 **⭐ If PurffleShorts saves you time, a star helps other creators find it.** &nbsp;·&nbsp; 🌐 [purffle.com/purffle-shorts](https://purffle.com/purffle-shorts/)
 
 <!-- mcp-name: io.github.Chamanrajragu/purffle-shorts -->
@@ -41,39 +45,47 @@ uvx --from git+https://github.com/Chamanrajragu/purffle-shorts purffle-shorts de
 
 ## 🤖 What is PurffleShorts?
 
-PurffleShorts is a **YouTube Shorts automation tool** for faceless channels. Start it and it keeps going: fresh topic, retention-focused script that a second AI pass reviews and tightens, natural AI voiceover, relevant footage, captions synced to each spoken word, a polished render, and an upload or scheduled release. It stays inside YouTube's daily API quota.
+PurffleShorts is a **YouTube Shorts automation tool** for faceless channels. Start it and it keeps going: fresh topic, retention-focused script that a second AI pass reviews and tightens, natural AI voiceover, relevant footage, captions synced to each spoken word, sound effects, a polished render, and an upload or scheduled release. It stays inside YouTube's daily API quota.
 
-Beyond the autopilot, it is a small studio: draft a script and edit any line before rendering, make **two-voice dialogues**, **text-message stories** and **Reddit-style stories**, turn an article or a Reddit post into a Short, **clip a podcast into Shorts** (an Opus Clip-style workflow that runs on your computer), publish the same video in **several languages**, plan a week of ideas in one go, and let the channel's own view counts steer new scripts.
+Beyond the autopilot, it is a small studio:
+- Draft a script and edit any line before rendering.
+- Make **two-voice dialogues**, **text-message stories** and **Reddit-style stories**, over stock footage or your own **gameplay background**.
+- Turn an article or a Reddit post into a Short.
+- **Clip a podcast into Shorts**, an Opus Clip-style workflow that runs on your computer, with jump cuts, punch-in zoom and face tracking.
+- Publish the same video in **several languages**, and plan a week of ideas from **what people search for on YouTube**.
+- Let the channel's own view counts steer new scripts.
 
-It is made for **content creators**, **faceless YouTube channels**, **educators** and **marketers** who want short-form video at volume without editing by hand. It runs on your own computer (macOS, Windows, Linux or Docker), you pick every model, and the vertical 9:16 MP4s work for **TikTok** and **Instagram Reels** too.
+It is made for **content creators**, **faceless YouTube channels**, **educators** and **marketers** who want short-form video at volume without editing by hand. It runs on your own computer (macOS, Windows, Linux), in **Docker** or in **Google Colab**. You pick every model, and the same video can go to **TikTok** and **Instagram Reels** as well as YouTube.
 
 ---
 
 ## 🎯 Use cases
 
-- **A faceless channel on autopilot.** Pick a niche (space, history, animals, money tips), set three publish times a day and leave it running. Ideas from Trends, Wikipedia, Reddit, RSS or your list are never reused, the AI is told to avoid your recent titles, and every script is reviewed before it is voiced.
-- **Text-message and Reddit-style story videos** for Shorts, TikTok and Reels: the AI writes a fictional chat or a first-person post, two voices or one narrator read it, and the chat screen or post card is animated for you. A Reddit post link works as the source too.
-- **Podcast, interview and stream clips.** `clip episode.mp4 --count 5` transcribes the video, lets the AI pick the moments that stand on their own and returns captioned vertical clips, with no per-minute fees.
+- **A faceless channel on autopilot.** Pick a niche (space, history, animals, money tips), set three publish times a day and leave it running. Ideas come from real YouTube searches, Trends, Wikipedia, Reddit, RSS or your list, and are never reused. The AI is told to avoid your recent titles, and every script is reviewed before it is voiced.
+- **Reddit story videos over gameplay.** The AI writes a first-person post, a narrator reads it over a post card, and your Minecraft parkour or other gameplay clip plays underneath: full screen, or split screen with footage on top. A real Reddit post link works as the source too.
+- **Fake text message videos** for Shorts, TikTok and Reels: the AI writes a fictional chat, two voices read it, and the phone screen is animated with a pop as each message lands.
+- **Podcast, interview and stream clips.** `clip episode.mp4 --count 5` transcribes the video and lets the AI pick the moments that stand on their own (or the ones matching your brief, such as "the funniest bits"). You get captioned vertical clips with pauses and ums removed, the speaker kept in frame and a virality score each. There are no per-minute fees.
 - **Articles, blog posts and notes into video.** `make --url https://…` or `--from-file notes.md` turns your own writing into a Short.
-- **One idea, many languages.** `--also-lang es,hi,pt` publishes the same video with native voices in each language, reusing the footage.
+- **One idea, many languages.** `--also-lang es,hi,pt` publishes the same video with native voices in each language. `LOCALIZE_METADATA` translates the title and description of every upload.
 - **Education and explainers.** Quiz, myth-vs-fact, explainer and dialogue formats, in 9:16 for Shorts or 16:9 for regular YouTube.
-- **An AI assistant that makes videos.** Through MCP, ask Claude or Cursor to draft, render, clip or upload videos from a chat.
+- **Automations and AI assistants.** Drive it from n8n, Zapier or cron through the [REST API](https://github.com/Chamanrajragu/purffle-shorts/blob/main/docs/api.md), or ask Claude or Cursor to make, clip or upload videos through MCP.
 
 ---
 
 ## ✨ Features
 
 **AI scriptwriting**
-- One structured LLM call returns the whole Short: hook, scenes, a footage search and an image prompt per scene, title, description, hashtags, tags and YouTube category.
-- **Script Doctor**: a second AI pass scores the draft 0–100 for retention (hook, pacing, payoff, accuracy risk), lists what is weak and rewrites it. The score is stored with every video.
+- One structured LLM call returns the whole Short: hook, scenes, a footage search, an image prompt, key words and an emoji per scene, title, description, hashtags, tags and YouTube category.
+- **Script Doctor**: a second AI pass grades the draft on six points (hook, curiosity, pacing, specificity, payoff, accuracy), lists what is weak and rewrites it. The rewrite is graded again and only kept if it scores at least as well, so the 0–100 retention score always belongs to the script you actually get. Automatic checks (hook length, filler words, missing call to action, no concrete numbers) feed the review.
+- **Written for search**: the phrases YouTube's own search box suggests for the topic are handed to the writer, so titles, descriptions and tags use the words people actually type.
+- Strict JSON-schema replies on providers that support them (OpenAI, Gemini, OpenRouter, Ollama, LM Studio, Claude), with an automatic step down for the ones that don't.
 - **12 providers**: OpenAI, Anthropic Claude, Google Gemini, Groq, OpenRouter, DeepSeek, Mistral, Together AI, xAI Grok, Ollama, LM Studio, or any OpenAI-compatible URL. List backups in `LLM_FALLBACKS` and they are tried in order if the main one fails.
 - **11 formats**: facts, story, listicle, myth-busting, quiz, explainer, motivational, news, **two-voice dialogue**, **text-message story** and **Reddit-style story** (a post card while the title is read, then the story with captions).
 - Draft first and edit any line in the Studio, or write a script yourself and render it with `--script`, with no LLM call.
 
 **Sources**
-- Your niches, Google Trends, Wikipedia "On this day", Reddit TIL, **RSS feeds**, your own list, **any web page or Reddit post** (`--url`) or **document** (`--from-file`).
-- **Content planner**: the AI brainstorms a batch of specific, non-repeating ideas into a queue that the autopilot uses first.
-- **Clip long videos**: transcribe a podcast, interview or talk, let the AI pick the moments that stand alone, and get captioned vertical clips.
+- Your niches, **questions people search for on YouTube** (`TOPIC_SOURCES=search`), Google Trends, Wikipedia "On this day", Reddit TIL, **RSS feeds**, your own list, **any web page or Reddit post** (`--url`) or **document** (`--from-file`).
+- **Content planner**: the AI brainstorms a batch of specific, true, non-repeating ideas, guided by real YouTube searches, into a queue that the autopilot uses first.
 
 **Voiceover**
 - 320+ free Microsoft neural voices in 75 languages, with word-level timestamps. No key needed.
@@ -81,56 +93,90 @@ It is made for **content creators**, **faceless YouTube channels**, **educators*
 - **One video, many languages**: `--also-lang es,hi` adds translated copies that reuse the same footage.
 - Also OpenAI TTS, ElevenLabs, Kokoro-82M, Coqui and the operating-system voice. Falls back to the free voice if a paid engine fails.
 
-**Footage & images**
-- A separate stock-footage search for every scene (Pexels, Pixabay), portrait clips preferred, smart 9:16 crop, never reused across videos.
-- AI images per scene from OpenAI (gpt-image-1 / DALL·E 3) or Pollinations, or your own `media/` folder.
-- Ken Burns motion on photos, colour grades, transitions.
+**Footage & backgrounds**
+- A separate stock-footage search for every scene (Pexels, Pixabay). Each candidate is scored by how well its own description matches the scene, the search engine's ranking, shape and length; portrait clips preferred, never reused across videos.
+- **Gameplay and background videos** (`BACKGROUND_VIDEO`): one continuous stretch of your Minecraft parkour, Subway Surfers or "satisfying" clip plays under the whole story, either full screen or **split screen** with the scene footage on top.
+- **Fast pacing**: scenes longer than 4.5 s are cut into several shots with different footage, each cut placed on a natural pause between words.
+- AI images per scene from OpenAI (gpt-image-1 / DALL·E 3) or Pollinations, or your own `media/` folder. Ken Burns motion on photos, colour grades, transitions.
 
-**Captions & editing**
-- Captions appear exactly when each word is spoken, with the current word highlighted. 6 styles; Latin, Indic, Arabic, Thai and CJK scripts.
+**Captions, sound & editing**
+- Captions appear exactly when each word is spoken, with the current word highlighted. **Key words and numbers get their own colour**, and **an emoji per scene** pops up above them. 6 styles; Latin, Indic, Arabic, Thai and CJK scripts.
+- **Sound effects** made in code (nothing to license): a whoosh on each scene change, a pop as each text message lands, a low hit under the hook. They are mixed 11 dB under the measured voice.
 - Dialogues get speaker name tags and a colour per speaker; chat stories get an animated phone screen with typing indicators; Reddit-style stories open on a post card (community, poster, title, votes).
 - **9:16, 16:9, 1:1 or 4:5** output (`--aspect`), with captions and overlays sized for each shape.
-- Hook title, watermark, progress bar, end call-to-action, background music that ducks under the voice, loudness normalised to −14 LUFS.
-- Plain ffmpeg: each scene is prepared as a short segment, then one final encode joins them and adds everything above. No MoviePy, no ImageMagick, no GPU.
+- Hook title, watermark, progress bar, end call-to-action, background music that ducks under the voice.
+- **Broadcast-grade audio**: gentle voice clean-up (rumble cut, de-esser, compression), then two-pass loudness normalisation that measures the mix and applies one steady gain, landing on −14 LUFS without pumping.
+- Voices without word timestamps get their phrase ends pinned to the real pauses in the audio, so captions stay in sync even without an aligner.
+- The cover image is the sharpest, best-exposed frame of the opening seconds, never a frame mid-transition.
+- Plain ffmpeg: each shot is prepared as a short segment, the soundtrack is mixed and normalised in its own pass, then one final encode joins them and adds everything above. No MoviePy, no ImageMagick, no GPU needed.
 
-**Publishing**
+**Clipping (a free Opus Clip alternative)**
+- Transcribes podcasts, interviews and streams locally with Whisper. The AI picks self-contained moments with a hook and a payoff, or only the ones that fit your brief (`--prompt "every tip about sleep"`).
+- Each clip has a **virality score** with the reason. It is edited with **jump cuts** (long pauses shortened, "um" and "uh" removed, lips kept in sync) and **punch-in zoom** between sentences.
+- Framing: **face tracking** (`--crop face`), the centre, or the whole picture over a blurred copy. Word-by-word captions are added too.
+
+**Publishing & SEO**
 - Uploads to YouTube, or schedules each video into your next free time slot.
+- **TikTok, Instagram Reels and more** (`PUBLISH_TO=youtube,tiktok,instagram`): the same video goes out with a caption written for each network, at the same publish slot, through Upload-Post or Instagram's own API. Each network's result is saved, and a retry only re-sends what failed.
+- **Localised titles and descriptions** (`LOCALIZE_METADATA=es,pt,hi`), so viewers see the video under a title in their own language, and optional **caption-track upload** (`UPLOAD_CAPTIONS`) so YouTube can index every word.
 - Quota-aware queue, AI-content disclosure, playlists, privacy, made-for-kids flag.
 - Every video also gets a cover image, SRT subtitles and a metadata file for cross-posting.
 
 **Workflow**
 - Autopilot loop, one-off videos, bulk batches with parallel workers, several channels from separate settings files.
-- **Studio web app**: create, draft and edit, watch every stage live, browse and play the library, plan ideas, clip videos, read channel stats.
+- **Studio web app**: create, draft and edit, and watch every stage live (pushed instantly, with a percentage and a time-left estimate learned from your machine). Cancel a running job, browse and play the library, plan ideas, clip videos and read channel stats. `STUDIO_PASSWORD` protects it when it runs on a server.
+- **REST API** for n8n, Zapier, cron or your own scripts ([docs/api.md](https://github.com/Chamanrajragu/purffle-shorts/blob/main/docs/api.md)), a **Google Colab notebook**, and **docker compose** for servers.
+- A live progress line in the terminal, and a voice cache so re-rendering an edited script only voices the lines that changed.
 - **MCP server**: ask Claude Desktop, Claude Code or Cursor to make, clip or upload videos.
-- **Learns from your channel** (opt-in): view counts of your uploads show the AI what works for your audience.
-- Discord / Slack / webhook notifications, a `doctor` self-check, SQLite history, Docker, and CI that renders real videos on every pull request.
+- **Learns from your channel** (opt-in): view counts of your uploads show the AI what works for your audience, and the format of each new video is chosen by Thompson sampling over your own results. `stats` tells you whether the retention score actually predicts your views (Spearman correlation) and which publish hours did best.
+- Discord / Slack / webhook notifications, a `doctor` self-check, SQLite history, and CI that renders real videos on every pull request.
+
+---
+
+## 🆕 New since 3.0
+
+| | What you get |
+|---|---|
+| **Retention editing** | Key words and numbers highlighted in captions, an emoji per scene, and sound effects (whoosh, pop, hit) placed 11 dB under the voice |
+| **Gameplay backgrounds** | `--background parkour.mp4`: one video under the whole story, full screen or `--layout split` |
+| **Smarter clipping** | Jump cuts (pauses and ums removed, lips in sync), punch-in zoom, face tracking, `--prompt` to steer the picks, and a virality score with the reason |
+| **Search-led SEO** | Topics and keywords from real YouTube searches, titles and descriptions localised for other languages, optional caption-track upload |
+| **Better scripts** | Script Doctor 2.0: a six-part rubric, automatic checks, and a rewrite kept only if it scores at least as well |
+| **Faster, live renders** | About 40% faster on the same machine, a Studio that pushes progress with a time-left estimate, and cancel at any time |
+| **TikTok and Instagram** | `PUBLISH_TO=youtube,tiktok,instagram`: one video to every network, scheduled together, each result tracked and retried on its own |
+| **Run it anywhere** | Google Colab notebook, docker compose with the published image, REST API with an n8n recipe |
+
+The [changelog](https://github.com/Chamanrajragu/purffle-shorts/blob/main/CHANGELOG.md) has the full list, with the measured before-and-after numbers.
 
 ---
 
 ## ⚖️ How it compares
 
-Open-source Shorts tools each cover part of the job: some write videos from a topic, some clip long videos, some make Reddit stories. PurffleShorts does all three, and it is the only one we found with text-message stories, two-voice dialogues, a script review pass and an MCP server that covers writing, clipping and uploading.
+Open-source Shorts tools each cover part of the job: some write videos from a topic, some clip long videos, some make Reddit stories. PurffleShorts does all three. It is the only one we found with text-message stories, two-voice dialogues, a script review pass, and an MCP server that covers writing, clipping and uploading.
 
 | | **PurffleShorts** | [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) | [ShortGPT](https://github.com/RayVentura/ShortGPT) | [RedditVideoMakerBot](https://github.com/elebumm/RedditVideoMakerBot) | [AI-Youtube-Shorts-Generator](https://github.com/Anil-matcha/AI-Youtube-Shorts-Generator) | [OpenShorts](https://github.com/mutonby/openshorts) |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
 | Writes the video from a topic | ✅ | ✅ | ✅ | ❌ Reddit threads | ❌ clipper | ➖ paid APIs |
 | Any LLM, including local Ollama | ✅ | ✅ | ➖ OpenAI, Gemini | ❌ no LLM | ➖ OpenAI, Gemini | ✅ |
 | Free voices, no key | ✅ | ✅ | ✅ | ✅ | ❌ no voice | ➖ ElevenLabs |
-| Word-by-word highlighted captions | ✅ | ➖ | ❔ | ❌ | ❌ | ✅ |
+| Word-by-word highlighted captions | ✅ key words + emoji | ➖ | ❔ | ❌ | ❌ | ✅ |
 | Script review and rewrite pass | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Text-message chat stories | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Two-voice dialogues | ✅ | ❔ | ❔ | ❌ | ❌ | ❌ |
 | Reddit-style stories | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
-| Clip long videos into Shorts | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Gameplay background, split screen | ✅ | ❔ | ❔ | ✅ background library | ❌ | ❔ |
+| Clip long videos into Shorts | ✅ face tracking | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Silence and filler removal in clips | ✅ | ❌ no clipping | ❌ no clipping | ❌ no clipping | ❔ | ❔ |
 | Videos in other languages | ✅ | ✅ | ✅ | ✅ | ➖ | ✅ paid dubbing |
 | YouTube upload and scheduling | ✅ official API | ➖ via Upload-Post, no scheduling | ❌ | ❌ by design | ❌ | ✅ via Upload-Post |
-| TikTok / Instagram upload | ❌ files only | ✅ via Upload-Post | ❌ | ❌ | ❌ | ✅ via Upload-Post |
+| TikTok / Instagram upload | ✅ via Upload-Post, or Instagram's API | ✅ via Upload-Post | ❌ | ❌ | ❌ | ✅ via Upload-Post |
 | MCP server | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ clipping |
 | Web app | ✅ | ✅ | ✅ | ➖ settings only | ❌ | ✅ |
+| Colab notebook | ✅ | ✅ | ✅ | ❔ | ❔ | ❔ |
 | Tests and CI | ✅ | ✅ | ❌ | ➖ lint only | ❌ | ✅ |
 | License | MIT | MIT | MIT | GPL-3.0 | MIT | MIT |
 
-<sub>✅ yes · ➖ partly · ❌ no · ❔ not stated. Compiled on 29 September 2026 from each project's README and code. Projects change quickly: if a cell is wrong, please <a href="https://github.com/Chamanrajragu/purffle-shorts/issues">open an issue</a> and it will be fixed. Where others are ahead: MoneyPrinterTurbo and OpenShorts can post to TikTok and Instagram through the Upload-Post service, and MoneyPrinterTurbo has a one-click Windows package and a Colab notebook.</sub>
+<sub>✅ yes · ➖ partly · ❌ no · ❔ not stated. Compiled on 29 September 2026 from each project's README and code; the gameplay, silence-removal and Colab rows were checked on 20 October 2026. Projects change quickly: if a cell is wrong, please <a href="https://github.com/Chamanrajragu/purffle-shorts/issues">open an issue</a> and it will be fixed. Where others are ahead: RedditVideoMakerBot ships a library of background videos, and MoneyPrinterTurbo has a one-click Windows package.</sub>
 
 ---
 
@@ -162,7 +208,10 @@ The library: every video with its format, language, length and status. Open one 
 
 ---
 
-## 🆕 What's new in 3.0
+## 🗂️ Earlier releases
+
+<details>
+<summary><b>What changed in 3.0</b> (new formats, clipping, the Studio, MCP)</summary>
 
 | | 2.0 | 3.0 |
 |---|---|---|
@@ -176,6 +225,8 @@ The library: every video with its format, language, length and status. Open one 
 | Web app | A form and a list | **New Studio**: live stage progress, script editor, library with player and actions, ideas, clipping, channel stats, setup checks. Works on phones |
 | Integrations | — | **MCP server** for Claude Desktop, Claude Code and Cursor; Discord / Slack / webhook notifications |
 | Reliability | | Clear errors for bad settings, hardware-encoder fallback to libx264, failed videos return their idea to the queue, database migrates itself, installs cleanly on Intel Macs, 120+ tests, Docker build checked in CI |
+
+</details>
 
 <details>
 <summary><b>What changed in 2.0</b> (the rewrite from 1.x)</summary>
@@ -203,27 +254,27 @@ Version 2 is a rewrite. The 1.x pipeline had problems: the pinned `openai` SDK n
 
 ```mermaid
 flowchart LR
-    A["Topic<br/>idea queue · niches · Trends ·<br/>Wikipedia · Reddit · RSS · web page"] --> B["AI script<br/>any LLM, one JSON reply"]
-    B --> R["Script Doctor<br/>score · rewrite"]
+    A["Topic<br/>idea queue · niches · YouTube searches ·<br/>Trends · Wikipedia · Reddit · RSS · web page"] --> B["AI script<br/>any LLM, one JSON reply,<br/>real search phrases"]
+    B --> R["Script Doctor<br/>rubric · rewrite · re-grade"]
     R --> C["Neural voice<br/>one or two speakers"]
-    C --> D["Footage per scene<br/>stock video · photos · AI images"]
-    D --> E["Captions & overlays<br/>hook · progress bar · CTA"]
-    E --> F["ffmpeg render<br/>9:16 · 16:9 · 1:1 · 4:5 · −14 LUFS"]
-    F --> G["Upload or schedule<br/>on YouTube"]
+    C --> D["Footage per shot<br/>stock video · photos · AI images<br/>or a gameplay background"]
+    D --> E["Captions & overlays<br/>key words · emoji · hook · CTA"]
+    E --> F["ffmpeg render<br/>9:16 · 16:9 · 1:1 · 4:5<br/>sound effects · −14 LUFS"]
+    F --> G["Upload or schedule<br/>localised titles · captions"]
     F -. also-lang .-> T["Translated copies<br/>same footage"]
     G -. next video .-> A
 ```
 
 | Step | What happens |
 |------|-------------|
-| 1. **Topic** | Queued ideas first, then your niches, today's Google Trends, Wikipedia "On this day", Reddit TIL (best-effort, since Reddit rate-limits anonymous requests) or `topics.txt`, skipping anything already made and news about deaths, violence or elections |
-| 2. **Script** | The LLM writes a hook-first script split into scenes, each with its own stock-footage query and AI-image prompt, plus title, description, hashtags, tags and category, all in one JSON reply. With `LEARN_FROM_STATS`, your best and worst performers are part of the prompt |
-| 3. **Review** | The Script Doctor scores it for retention and rewrites weak lines (`SCRIPT_REVIEW=rewrite`, the default). A rewrite that misses the target length is ignored, and a failed review never fails the video |
-| 4. **Voice** | Neural TTS speaks the script and returns per-word timestamps (or they are aligned/estimated). Dialogues and chats are voiced line by line with two voices |
-| 5. **Footage** | Each scene gets its own clip: Pexels / Pixabay video (portrait preferred), photos with Ken Burns motion, your own `media/` folder, or AI images, with an animated gradient as the last resort |
-| 6. **Captions** | 2–3-word captions appear exactly when spoken, with the current word highlighted; chat stories show messages popping in on a phone screen instead, and Reddit-style stories open on a post card |
-| 7. **Render** | Scenes are cover-cropped to the output shape, colour-graded and joined with transitions; hook title, watermark, progress bar, end CTA, ducked music and −14 LUFS loudness are added in one final ffmpeg encode |
-| 8. **Publish** | Uploaded now, or scheduled into your next free time slot, with the synthetic-media disclosure set; queued automatically when the daily quota is used up |
+| 1. **Topic** | Queued ideas come first. Then one of your sources: your niches, questions people type into YouTube's search box, today's Google Trends, Wikipedia "On this day", Reddit TIL (best effort, since Reddit rate-limits anonymous requests) or `topics.txt`. Anything already made is skipped, and so is news about deaths, violence or elections |
+| 2. **Script** | The LLM writes a hook-first script split into scenes. Each scene has its own stock-footage query, AI-image prompt, key words and emoji. The same JSON reply holds the title, description, hashtags, tags and category. Real YouTube search phrases for the topic are part of the prompt; with `LEARN_FROM_STATS`, so are your best and worst performers |
+| 3. **Review** | The Script Doctor grades it on a six-part rubric, rewrites weak lines and grades the rewrite again, keeping whichever scores higher (`SCRIPT_REVIEW=rewrite`, the default). A rewrite that misses the target length is ignored, and a failed review never fails the video |
+| 4. **Voice** | Neural TTS speaks the script and returns per-word timestamps (or they are aligned with Whisper, or pinned to the pauses in the audio). Dialogues and chats are voiced line by line with two voices; lines spoken before come from the voice cache |
+| 5. **Footage** | Each shot gets its own clip, chosen for how well its description matches the scene. Sources: Pexels / Pixabay video (portrait preferred), photos with Ken Burns motion, your own `media/` folder or AI images, with an animated gradient as the last resort. Long scenes are cut into several shots. With `BACKGROUND_VIDEO`, one stretch of your gameplay video plays under everything, full screen or split |
+| 6. **Captions** | 2–3-word captions appear exactly when spoken, with the current word highlighted, key words and numbers in their own colour, and the scene's emoji above. Chat stories show messages popping in on a phone screen instead, and Reddit-style stories open on a post card |
+| 7. **Render** | Shots are cover-cropped to the output shape, colour-graded and joined (hard cuts inside a scene, transitions between scenes). One final ffmpeg encode adds the hook title, watermark, progress bar and end CTA. The soundtrack (voice, ducked music, sound effects) is normalised to −14 LUFS in two passes, and the cover is the best frame of the hook |
+| 8. **Publish** | Uploaded now, or scheduled into your next free time slot, with the synthetic-media disclosure set, localised titles and, if you like, the caption track. Uploads are queued automatically when the daily quota is used up |
 
 ---
 
@@ -286,7 +337,23 @@ python -m purffle_shorts plan --count 14   # optional: queue two weeks of ideas 
 python -m purffle_shorts run               # or the old way:  python YT.py
 ```
 
-**Optional extras:** `pip install -e ".[clip]"` adds faster-whisper and yt-dlp for [clipping long videos](#%EF%B8%8F-clip-long-videos-into-shorts).
+**Optional extras:** `pip install -e ".[clip]"` adds faster-whisper and yt-dlp for [clipping podcasts and long videos](#%EF%B8%8F-clip-podcasts-into-shorts-free-opus-clip-alternative), and `pip install -e ".[face]"` adds face tracking.
+
+---
+
+## ☁️ Run it in Google Colab
+
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb)
+
+The [notebook](https://github.com/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb) installs PurffleShorts in Google's free cloud machines and walks through it in six cells:
+1. install;
+2. a demo with no keys;
+3. your keys from Colab Secrets (a free Gemini key is enough to write scripts);
+4. a Short about any topic;
+5. clipping an uploaded podcast, faster on a free T4 GPU;
+6. downloading everything as a zip.
+
+Nothing is uploaded to YouTube from the notebook.
 
 ---
 
@@ -308,29 +375,63 @@ purffle-shorts make --style reddit --topic "a neighbour who keeps borrowing my l
 purffle-shorts make --url "https://www.reddit.com/r/tifu/comments/…"   # a real post as the source
 ```
 
-Scripts from the LLM are fiction for `chat` and `reddit` (the prompt forbids real people). Reddit story videos usually play over gameplay or "satisfying" clips: put yours in `media/` and set `VISUAL_SOURCES=local`. Reddit post links are read through the post's public feed; only reuse posts when you have the author's permission. As with every format, read before you publish.
+Scripts from the LLM are fiction for `chat` and `reddit` (the prompt forbids real people). Reddit post links are read through the post's public feed; only reuse posts when you have the author's permission. As with every format, read before you publish.
 
 ---
 
-## ✂️ Clip long videos into Shorts
+## 🎮 Reddit story videos over gameplay (split screen)
+
+The classic Reddit-story look is a narrator over Minecraft parkour, Subway Surfers or a "satisfying" clip. Give PurffleShorts a background video (or a folder of them, one picked at random per Short) and one continuous, randomly chosen stretch of it plays under the whole story:
+
+```bash
+purffle-shorts make --style reddit --background media/backgrounds/parkour.mp4                 # full screen
+purffle-shorts make --style reddit --background media/backgrounds/ --layout split             # footage on top, gameplay below
+purffle-shorts make --style chat   --background media/backgrounds/                            # a text story over gameplay
+purffle-shorts demo --style reddit --background my-gameplay.mp4                               # try it with no keys
+```
+
+Or set `BACKGROUND_VIDEO=media/backgrounds` and `BACKGROUND_LAYOUT=full|split` in `.env`, or pick a video in the Studio's *Look* card (it lists everything in `media/backgrounds/`). In the split layout the scene footage is searched in the top half's shape and the captions sit on the seam, the usual "brainrot" layout that keeps eyes on screen. Sound effects, key-word captions and the post card work as usual. Use only gameplay you recorded yourself or have the rights to reuse.
+
+---
+
+## ✂️ Clip podcasts into Shorts (free Opus Clip alternative)
 
 ```bash
 pip install faster-whisper                          # free, local transcription (or set OPENAI_API_KEY)
 purffle-shorts clip podcast.mp4 --count 3           # fill the frame
+purffle-shorts clip interview.mp4 --crop face       # follow the speaker (pip install opencv-python-headless)
 purffle-shorts clip talk.mp4 --count 5 --crop blur  # whole picture over a blurred copy
+purffle-shorts clip episode.mp4 --prompt "the funniest moments"   # only the moments that fit a brief
 purffle-shorts clip "https://…" --count 3           # URLs need: pip install yt-dlp
 ```
 
-It works like Opus Clip or Vidyo.ai, but locally and without per-minute fees. The video is transcribed with word timings, and the LLM reads the timestamped transcript and picks moments of 20–58 s (`--min-seconds`, `--max-seconds`) that open with a hook and end on a complete thought, with a title, hashtags and a retention score for each. Each clip is cut on sentence boundaries, cropped to 9:16, captioned word by word with a hook title, and loudness-normalised. Without an LLM it still works, with moments spread evenly over the video instead. Clips upload like any other video when `UPLOAD=true`; add `--no-upload` to only cut them. Only clip videos you own or have permission to reuse.
+It works like Opus Clip, Klap or Vidyo.ai, but locally, with no per-minute fees and no watermark beyond your channel name. The video is transcribed with word timings. The LLM reads the timestamped transcript and picks moments of 20–58 s (`--min-seconds`, `--max-seconds`) that open with a hook and end on a complete thought, or only those matching your `--prompt`. Each moment gets a title, hashtags and a **virality score with the reason**. Each clip is cut on sentence boundaries, cropped to 9:16, captioned word by word with a hook title, and loudness-normalised.
+
+**Edited like a pro editor would:** **jump cuts** shorten pauses longer than `CLIP_MAX_PAUSE` (0.6 s) and remove "um" and "uh". Cuts land on frame boundaries and the sound is cut at exactly the same instants, so lips stay in sync however many cuts there are. **Punch-in zoom** changes the framing between sentences, at most every 2 seconds. Turn them off with `--no-jump-cuts` and `--no-zoom` (or `CLIP_JUMP_CUTS=false`, `CLIP_ZOOM=false`).
+
+Without an LLM it still works, with moments spread evenly over the video instead. Transcription uses `WHISPER_MODEL` (`auto` picks `large-v3-turbo` on an NVIDIA GPU and `small` on a CPU) with voice-activity detection, so music and silence don't turn into invented words. `--crop face` finds the speaker's face twice a second (OpenCV's YuNet detector, a 230 KB model downloaded once) and keeps it in frame, switching framing only when the camera cuts. Clips upload like any other video when `UPLOAD=true`; add `--no-upload` to only cut them. Only clip videos you own or have permission to reuse.
 
 ---
 
 ## 🗓️ Ideas, sources and languages
 
-- **Plan ahead:** `purffle-shorts plan --count 14 --niche "space"` asks the AI for specific, non-repeating ideas with a format and an angle each. `ideas` lists the queue (`--add`, `--remove`, `--clear`). Queued ideas are always made first; if a video fails, its idea goes back in the queue.
+- **What people search for:** `TOPIC_SOURCES=niche:2,search:2` mixes in questions people type into YouTube's search box about your niches ("why do octopuses have three hearts", "what happens when two oceans meet"); the AI answers the one that fits best.
+- **Plan ahead:** `purffle-shorts plan --count 14 --niche "space"` asks the AI for specific, true, non-repeating ideas with a format and an angle each, guided by real YouTube searches. `ideas` lists the queue (`--add`, `--remove`, `--clear`). Queued ideas are always made first; if a video fails, its idea goes back in the queue.
 - **From a web page, a Reddit post or a document:** `make --url https://…` or `make --from-file notes.md` uses the text as the script's source material. A Reddit post link picks the Reddit story format automatically.
 - **RSS:** `RSS_FEEDS=https://…/feed.xml,https://…` and `TOPIC_SOURCES=niche:3,rss:1`.
 - **Many languages:** `ALSO_LANGUAGES=es,hi` (or `--also-lang`) makes a translated copy of every video with a native voice, reusing the original's footage. Each copy is its own upload, linked to the original in the library.
+
+---
+
+## 🔍 SEO built in: real YouTube searches, localised titles, captions
+
+A Short that nobody searches for only lives as long as the Shorts feed shows it. PurffleShorts writes with search in mind:
+
+- **Real search phrases** (`SEO_KEYWORDS=true`, the default): before writing, it asks YouTube's own search box what people type about the topic ("why do octopuses have three hearts", "octopus blue blood"). It hands those phrases to the script writer, which uses the matching ones word for word in the title, the first line of the description and the tags. Off-topic suggestions (documentaries, games, "in hindi" and so on), sensitive and adult ones are filtered out. They are saved in `metadata.json` as `search_keywords`.
+- **Topics people are looking for** (`TOPIC_SOURCES=search`) and a planner that prefers ideas answering real searches.
+- **Localised titles and descriptions** (`LOCALIZE_METADATA=es,pt,hi,fr`): one extra LLM call translates the title and description, and the upload carries them as YouTube localizations. Viewers whose YouTube is in Spanish see the Spanish title, and so on, while the video stays one upload.
+- **Caption tracks** (`UPLOAD_CAPTIONS=true`): the exact subtitles are uploaded with the video, so YouTube has every spoken word to index (400 API units per video; run `auth` once more after turning it on).
+- Titles under 100 characters with `#shorts`, descriptions with a question that invites comments, 3–5 hashtags, tags kept under YouTube's 500-character limit, the right category, language and audio language, and the synthetic-media disclosure.
 
 ---
 
@@ -343,6 +444,8 @@ YOUTUBE_API_KEY=...        # optional: reads public stats without asking for mor
 
 `purffle-shorts stats` (and the Studio's Channel page) reads view, like and comment counts of the videos PurffleShorts uploaded: one API unit per 50 videos. With `LEARN_FROM_STATS=true` the autopilot refreshes them twice a day and shows the LLM your best and worst performers (public for 48 hours or more) when it writes and plans. Without `YOUTUBE_API_KEY`, run `auth` once more to grant read access.
 
+Once 8 or more videos have stats, `SCRIPT_STYLE=auto` stops picking formats at random: each format's typical view count gets a statistical estimate that tightens as its videos come in, and the next format is drawn by Thompson sampling. Formats that work for your audience are chosen more often, and untried ones still get a fair chance. `stats` also checks the predictions against reality: the Spearman correlation between the Script Doctor's retention score and real views, median views per format, and the publish hours that did best.
+
 ---
 
 ## 🧠 AI models
@@ -352,7 +455,7 @@ Set `LLM_PROVIDER` and `LLM_MODEL` in `.env`, or pass `--provider` / `--model`. 
 | Provider | `LLM_PROVIDER` | Key | Default model |
 |---|---|---|---|
 | OpenAI | `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` (GPT-5 / o-series supported) |
-| Anthropic Claude | `anthropic` | `ANTHROPIC_API_KEY` | `claude-opus-5` (structured JSON output) |
+| Anthropic Claude | `anthropic` | `ANTHROPIC_API_KEY` | `claude-opus-5-5` (structured JSON output) |
 | Google Gemini | `gemini` | `GEMINI_API_KEY` | `gemini-2.5-flash` |
 | Groq | `groq` | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` | `openai/gpt-4o-mini`, or any of its hundreds of models |
@@ -366,7 +469,7 @@ Set `LLM_PROVIDER` and `LLM_MODEL` in `.env`, or pass `--provider` / `--model`. 
 
 `python -m purffle_shorts providers` shows which providers have a key and whether Ollama / LM Studio are running.
 
-**Script Doctor** (`SCRIPT_REVIEW`): `rewrite` (default) scores every script and uses the improved version, `score` only records the score and the problems, `off` skips the extra call (`--no-review`). It adds one LLM call per video.
+**Script Doctor** (`SCRIPT_REVIEW`): `rewrite` (default) scores every script and uses the improved version, `score` only records the score and the problems, `off` skips it (`--no-review`). Rewrite mode adds two LLM calls per video (the review with its rewrite, then the re-grade), score mode one.
 
 > **Facts need a capable model.** In testing, a 3B local model wrote a confident but wrong claim ("flamingos get their colour from carrots"). Use a larger model for fact-based formats, or check `script.json`, fix it, and re-render with `--script`.
 
@@ -397,6 +500,10 @@ Set `LLM_PROVIDER` and `LLM_MODEL` in `.env`, or pass `--provider` / `--model`. 
 |---|---|
 | `CAPTION_STYLE` | `bold` (yellow active word) · `boxed` (active word in a colour box) · `neon` (glow) · `clean` · `karaoke` · `minimal` |
 | `CAPTION_POSITION` | `upper` · `center` · `lower` |
+| `CAPTION_EMPHASIS` | `true`: the key words the AI marks in each scene, and every number, in the style's emphasis colour |
+| `CAPTION_EMOJI` | `true`: an emoji per scene pops up above the captions ([Twemoji](https://github.com/jdecked/twemoji), CC-BY 4.0, credited in the description automatically) |
+| `SOUND_EFFECTS`, `SFX_VOLUME` | `true`, `1.0`: whoosh on scene changes, pop per text message, low hit under the hook, 11 dB under the voice (`0.5` quieter, `2.0` louder) |
+| `BACKGROUND_VIDEO`, `BACKGROUND_LAYOUT` | A video or a folder of videos (gameplay) under the whole story; `full` or `split` ([more](#-reddit-story-videos-over-gameplay-split-screen)) |
 | `COLOR_GRADE` | `none` · `vivid` · `cinematic` · `warm` · `cool` · `bw` |
 | `TRANSITION` | `random` · `none` · `fade` · `slideup` · `smoothleft` · `circleopen` · `zoomin` · … |
 | Overlays | Hook title (`HOOK_OVERLAY`), watermark (`WATERMARK`, defaults to `CHANNEL_NAME`, which is PurffleStudios until you change it; `none` hides it), progress bar (`PROGRESS_BAR`), end call-to-action (`END_CTA`) |
@@ -414,11 +521,24 @@ The caption font is downloaded once from Google Fonts (Anton for Latin scripts, 
 
 ## 📅 Publishing & scheduling
 
+`PUBLISH_TO` lists where each video goes: `youtube` (the default), `tiktok`, `instagram`, and through Upload-Post also `facebook`, `threads`, `x`, `linkedin`, `bluesky` and `pinterest`. With `PUBLISH_TIMES`, every network gets the same slot.
+
+| Network | How | What you set |
+|---|---|---|
+| **YouTube** | The official YouTube Data API with your Google sign-in | `credentials.json`, then `purffle-shorts auth` |
+| **TikTok** | [Upload-Post](https://www.upload-post.com), a relay that holds the TikTok sign-in. TikTok only lets audited apps publish public videos through its own API, so this is the dependable route. TikTok needs a paid Upload-Post plan | Create a profile on upload-post.com and connect TikTok to it, then set `UPLOAD_POST_API_KEY` and `UPLOAD_POST_USER` (the profile's name). Optional: `TIKTOK_PRIVACY` |
+| **Instagram Reels** | Instagram's official API, free: the video is sent straight from your computer (resumable upload, no public link needed) and published as a Reel. Instagram's API can't schedule, so it posts right away. Without these keys, Instagram goes through Upload-Post | `INSTAGRAM_USER_ID` and `INSTAGRAM_ACCESS_TOKEN` from a Meta app with Facebook Login for Business (permission `instagram_content_publish`, a professional account) |
+| **Facebook, Threads, X, LinkedIn, Bluesky, Pinterest** | Upload-Post | Connect them to the same Upload-Post profile |
+
+Captions are written for each network: the title, the description and its hashtags, without `#shorts`, cut to each network's length. The cover frame is passed to Instagram. A network that fails never stops the others or the video. Its result is saved in `metadata.json` and shown in the Studio, and `upload --id N` (or **Publish the rest** in the Studio) re-sends only what didn't go out.
+
+> These integrations follow each service's published API and are covered by tests against recorded responses, but they have not yet been run against live TikTok and Instagram accounts. Please [open an issue](https://github.com/Chamanrajragu/purffle-shorts/issues) if a post doesn't go out as expected.
+
 - `YT_PRIVACY=public|unlisted|private`.
 - `PUBLISH_TIMES=09:00,14:00,19:00` with `TIMEZONE=Asia/Kolkata` uploads each video as private and schedules it into the next free slot. Render in bulk, release on schedule.
 - **Paced and quota-aware.** `YT_DAILY_LIMIT=6` uploads a day by default. That is a pace you choose, not the API's ceiling: uploads now have their own API bucket of 100 a day at 1 unit each ([Google's quota table](https://developers.google.com/youtube/v3/determine_quota_cost), updated 15 September 2026). Extra videos are queued, and so are videos YouTube refuses because the project or the channel hit a limit (`quotaExceeded`, `uploadLimitExceeded`); after a refusal nothing else is tried that day. On autopilot the queue is uploaded first after the reset at midnight Pacific time, and production waits instead of piling up. Without autopilot, run `upload --pending` after the reset.
 - `SYNTHETIC_MEDIA=true` sets YouTube's *altered or synthetic content* disclosure. `MADE_FOR_KIDS`, `PLAYLIST_ID` and category (chosen by the AI) are set too.
-- Each video's folder holds `short.mp4` (`video.mp4` for 16:9), `cover.jpg`, `captions.srt`, `script.json` and `metadata.json` (including the retention score), ready to cross-post to TikTok or Reels. `KEEP_VIDEOS=false` deletes the MP4 after a successful upload.
+- Each video's folder holds `short.mp4` (`video.mp4` for 16:9), `cover.jpg`, `captions.srt`, `script.json` and `metadata.json` (including the retention score and where it was posted). `KEEP_VIDEOS=false` deletes the MP4 once every destination has it.
 - **Notifications:** `NOTIFY_WEBHOOK=https://discord.com/api/webhooks/…` (or a Slack incoming webhook, or any URL for JSON) posts a message when a video is rendered, uploaded, scheduled, queued or fails.
 
 ---
@@ -434,18 +554,18 @@ python -m purffle_shorts <command> [options]        # or `purffle-shorts <comman
 | `run` | Autopilot loop. `--count N`, `--once`, `--batch`, `--workers`, `--delay` |
 | `make` | Make one video now. `--topic "…"`, `--url https://…` (web page or Reddit post), `--from-file notes.md`, `--count N`, `--script file.json` (your own script, no LLM) |
 | `demo` | Render a sample with no API keys (`--style chat`, `dialogue` or `reddit` for the story formats) |
-| `clip` | Cut a long video into Shorts: `clip talk.mp4 --count 3 --crop center\|blur` |
+| `clip` | Cut a long video into Shorts: `clip talk.mp4 --count 3 --crop center\|face\|blur --prompt "…" --no-jump-cuts --no-zoom` |
 | `plan` / `ideas` | Let the AI plan ideas into the queue / list, add or remove queued ideas |
 | `stats` | Refresh and show view counts of your uploads |
 | `mcp` | Run as an MCP server for Claude Desktop, Claude Code, Cursor… |
-| `upload` | `--pending` uploads rendered and queued videos, up to today's `YT_DAILY_LIMIT`; `--id N` uploads one |
+| `upload` | `--pending` publishes rendered and queued videos, up to today's `YT_DAILY_LIMIT`; `--id N` publishes one, or re-sends only the networks that failed |
 | `auth` | Connect your YouTube channel |
 | `doctor` | Check ffmpeg and libass, LLM (including whether the Ollama model is pulled), voices, keys, footage sources, YouTube setup |
 | `providers` / `voices` | List LLM providers / free voices |
 | `history` | Everything made so far, with links |
 | `studio` | Local web app |
 
-Common options: `--source queue|trending|wikipedia|reddit|rss|file|niche`, `--niche "space"`, `--style facts|story|listicle|myth|quiz|explainer|motivational|news|dialogue|chat|reddit`, `--lang`, `--duration 45`, `--aspect 9:16|16:9|1:1|4:5`, `--also-lang es,hi`, `--provider`, `--model`, `--no-review`, `--tts`, `--voice`, `--voice-b`, `--visuals`, `--caption-style`, `--grade`, `--transition`, `--resolution`, `--no-music`, `--no-upload`, `--privacy`, `--publish-times`, `--env-file`.
+Common options: `--source queue|search|trending|wikipedia|reddit|rss|file|niche`, `--niche "space"`, `--style facts|story|listicle|myth|quiz|explainer|motivational|news|dialogue|chat|reddit`, `--lang`, `--duration 45`, `--aspect 9:16|16:9|1:1|4:5`, `--also-lang es,hi`, `--provider`, `--model`, `--no-review`, `--tts`, `--voice`, `--voice-b`, `--visuals`, `--caption-style`, `--grade`, `--transition`, `--resolution`, `--background video.mp4`, `--layout full|split`, `--no-music`, `--no-sfx`, `--no-emoji`, `--no-upload`, `--privacy`, `--publish-times`, `--publish-to youtube,tiktok,instagram`, `--env-file`.
 
 **Your own script:** every video folder has a `script.json`. Edit the narration, title or image prompts and render it again with `make --script path/to/script.json`. The files in [`examples/`](https://github.com/Chamanrajragu/purffle-shorts/tree/main/examples) show the format.
 
@@ -461,13 +581,29 @@ Common options: `--source queue|trending|wikipedia|reddit|rss|file|niche`, `--ni
 python -m purffle_shorts studio        # opens http://127.0.0.1:8765
 ```
 
-- **Create:** topic, web page, idea queue or "surprise me"; eleven formats; language, length, aspect, voices, caption style (with a preview), grade, transitions, footage sources, model, Script Doctor mode, extra languages, upload.
+- **Create:** topic, web page, idea queue or "surprise me"; eleven formats; language, length, aspect, voices, caption style (with a preview), grade, transitions, footage sources, a background video (full or split screen), sound effects, key-word colours, emoji, model, Script Doctor mode, extra languages, and publishing to YouTube, TikTok and Instagram.
 - **Draft, then edit:** the AI writes and reviews the script, you see the retention score and the problems it found, change any line, reorder or add scenes, switch speakers, then render exactly that script.
 - **Live progress** through topic, script, review, voice, footage, captions, render and upload, with the log.
 - **Library:** thumbnails with status, format, language and score; open one to play it, download the MP4 or captions, upload it, edit and re-render it, or delete it.
-- **Ideas, Clip, Channel and System** pages: plan and queue ideas, clip long videos, see views per video and per format, run the setup checks and copy the MCP config.
+- **Ideas, Clip, Channel and System** pages: plan and queue ideas, clip long videos (with a brief, jump cuts, zoom and face tracking; each clip shows its virality score), see views per video and per format, run the setup checks and copy the MCP config.
 
-It needs no build step or internet connection (no CDN), listens on localhost only, refuses requests for any other host name, sends a strict Content-Security-Policy, and every action needs a per-session token.
+The page needs no build step and loads nothing from a CDN. The Studio listens on localhost only, refuses requests for any other host name, sends a strict Content-Security-Policy, and every action needs a token (new each session, or fixed with `STUDIO_TOKEN`). On a server, `STUDIO_PASSWORD` puts a password on every page and API call.
+
+---
+
+## 🔗 REST API and automation (n8n, Zapier, cron)
+
+Everything the Studio does is a small JSON API, so n8n, Make, Zapier (through a webhook), a cron job or your own script can make, clip, plan and upload videos:
+
+```bash
+STUDIO_TOKEN=change-me purffle-shorts studio --no-browser
+curl -X POST localhost:8765/api/make -H "X-Studio-Token: change-me" -H "Content-Type: application/json" \
+     -d '{"topic": "why octopuses have three hearts", "style": "facts", "duration": 35}'      # → {"job": 1}
+curl localhost:8765/api/jobs/1          # status, stage, percentage, time left, then the result with the video id
+curl -o short.mp4 localhost:8765/files/12/short.mp4
+```
+
+Jobs run one at a time in order. Follow them by polling `GET /api/jobs/<id>`, or listen to the Server-Sent Events stream at `/api/events`. [docs/api.md](https://github.com/Chamanrajragu/purffle-shorts/blob/main/docs/api.md) lists every endpoint and field, with Python and curl examples and an **n8n recipe that turns every new RSS item into a Short**.
 
 ---
 
@@ -489,15 +625,25 @@ PurffleShorts is an [MCP](https://modelcontextprotocol.io) server too. Add it to
 
 Without installing anything, `uv` can run it straight from GitHub: use `"command": "uvx"` with `"args": ["--from", "git+https://github.com/Chamanrajragu/purffle-shorts", "purffle-shorts", "mcp"]`.
 
-`PURFFLE_HOME` is the folder with your `.env`. Then ask things like *"make a 30-second text story about a haunted smart speaker, in Spanish"*, *"draft a dialogue about black holes and show me the script first"*, *"clip my interview.mp4 into three Shorts"* or *"plan ten ideas about ancient Rome"*. Tools: `make_short`, `draft_script`, `clip_video`, `plan_ideas`, `list_videos`, `upload_video`. Nothing is uploaded unless the request says so (`upload: true`); `demo: true` works without any keys.
+`PURFFLE_HOME` is the folder with your `.env`. Then ask things like *"make a 30-second text story about a haunted smart speaker, in Spanish"*, *"draft a dialogue about black holes and show me the script first"*, *"clip my interview.mp4 into three Shorts"* or *"plan ten ideas about ancient Rome"*. Tools: `make_short` (with a background video, layout, sound effects and emoji switches), `draft_script`, `clip_video` (with a brief, jump cuts and zoom), `plan_ideas`, `list_videos`, `upload_video`. Nothing is uploaded unless the request says so (`upload: true`); `demo: true` works without any keys.
 
 ---
 
 ## 🐳 Docker
 
+Each release is published as `ghcr.io/chamanrajragu/purffle-shorts`. With [docker-compose.yml](https://github.com/Chamanrajragu/purffle-shorts/blob/main/docker-compose.yml), a server, NAS or VPS runs the Studio, plus the autopilot if you want it:
+
 ```bash
-docker build -t purffle-shorts .
-docker run --rm -it --env-file .env -v "$PWD:/work" purffle-shorts run
+cp .env.example .env                              # add your keys and a STUDIO_PASSWORD
+docker compose up -d                              # Studio on http://localhost:8765
+docker compose --profile autopilot up -d          # also make and upload on schedule
+```
+
+Or with plain Docker:
+
+```bash
+docker run --rm -it --env-file .env -v "$PWD:/work" ghcr.io/chamanrajragu/purffle-shorts run
+docker build -t purffle-shorts .                  # build your own from this checkout
 ```
 
 Run `auth` once on your own computer so `token.json` exists in the mounted folder. For the Studio in Docker, publish the port on localhost only: `docker run --rm -it --env-file .env -v "$PWD:/work" -p 127.0.0.1:8765:8765 purffle-shorts studio --host 0.0.0.0 --no-browser`. Keep comments in `.env` on their own lines: `--env-file` reads a comment after a value as part of the value.
@@ -507,13 +653,28 @@ Run `auth` once on your own computer so `token.json` exists in the mounted folde
 ## ❓ FAQ
 
 **Is PurffleShorts free?**<br>
-Yes. It is MIT-licensed and runs on your own computer. The default voices, Ollama models, faster-whisper and the Pexels and Pixabay APIs cost nothing. You only pay for paid APIs you choose to use, such as OpenAI, Claude or ElevenLabs. The Script Doctor adds one LLM call per video (`SCRIPT_REVIEW=off` to skip it).
+Yes. It is MIT-licensed and runs on your own computer. The default voices, Ollama models, faster-whisper and the Pexels and Pixabay APIs cost nothing. You only pay for paid APIs you choose to use, such as OpenAI, Claude or ElevenLabs. The Script Doctor adds two LLM calls per video (`SCRIPT_REVIEW=off` to skip it).
 
 **Can it make text-message stories, Reddit story videos or two-person conversations?**<br>
 Yes: `--style chat` renders an animated phone screen with messages popping in as each side's voice reads them, `--style reddit` opens on a Reddit-style post card and then tells the story with captions, and `--style dialogue` voices two people with name tags on the captions.
 
 **Is there a free, open-source alternative to Opus Clip?**<br>
-`purffle-shorts clip` does the same job on your own computer: it transcribes a podcast, interview or stream, lets an LLM (a local Ollama model works) pick self-contained moments, and cuts captioned 9:16 clips. There are no per-minute credits, and the only watermark is your channel name from `CHANNEL_NAME` (it reads PurffleStudios until you set it; `WATERMARK=none` removes it). It crops to the centre (or fits the whole picture over a blurred copy); it does not track faces.
+`purffle-shorts clip` does the same job on your own computer. It transcribes a podcast, interview or stream, lets an LLM (a local Ollama model works) pick self-contained moments with a virality score, and cuts captioned 9:16 clips. The clips get jump cuts (pauses and ums removed, lips in sync), punch-in zoom and, with `--crop face`, face tracking. `--prompt "…"` tells it what to look for. There are no per-minute credits, and the only watermark is your channel name from `CHANNEL_NAME` (it reads PurffleStudios until you set it; `WATERMARK=none` removes it).
+
+**How do I make Reddit story videos with Minecraft parkour or Subway Surfers gameplay?**<br>
+Put a gameplay video you may reuse in `media/backgrounds/` and run `purffle-shorts make --style reddit --background media/backgrounds/` (add `--layout split` for footage on top and gameplay below). A random, continuous stretch plays under the whole story, with the post card, narration, captions and sound effects on top. [More](#-reddit-story-videos-over-gameplay-split-screen).
+
+**Can it remove silences and filler words from my podcast clips?**<br>
+Yes, by default: pauses longer than 0.6 s are shortened and "um" and "uh" are cut. Picture and sound are cut on the same frame boundaries, so lips stay in sync. `CLIP_MAX_PAUSE` sets the threshold, and `--no-jump-cuts` keeps everything.
+
+**Does it add sound effects, emoji and highlighted key words like Submagic?**<br>
+Yes. Each video gets a whoosh on scene changes, a pop per text message and a hit under the hook, mixed 11 dB under the voice. The AI marks the key words of each scene, and those words and every number are drawn in colour. An emoji per scene pops up above the captions. Turn any of them off with `SOUND_EFFECTS`, `CAPTION_EMPHASIS` or `CAPTION_EMOJI`.
+
+**Can I run it in Google Colab, on a server or from n8n?**<br>
+Yes. There is a [Colab notebook](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb), a `docker-compose.yml` for servers, and a [REST API](https://github.com/Chamanrajragu/purffle-shorts/blob/main/docs/api.md) with an n8n recipe.
+
+**Does it help my Shorts get found in YouTube search?**<br>
+It writes titles, descriptions and tags with the phrases YouTube's own search box suggests for the topic, can pick topics from what people search for, can translate titles and descriptions into other languages for viewers there (`LOCALIZE_METADATA`), and can upload the exact captions (`UPLOAD_CAPTIONS`). [Details](#-seo-built-in-real-youtube-searches-localised-titles-captions). No tool can promise views; a good hook and a satisfying payoff still matter most, and the Script Doctor grades both.
 
 **How is it different from MoneyPrinterTurbo or ShortGPT?**<br>
 All three turn a topic into a Short. PurffleShorts adds a script review pass, text-message, dialogue and Reddit-style formats, long-video clipping, scheduled uploads through the official YouTube API, and an MCP server. See the [comparison table](#%EF%B8%8F-how-it-compares) for the details and where the others are ahead.
@@ -525,13 +686,13 @@ Yes, through MCP: add PurffleShorts to an MCP client that runs local servers, su
 Yes: `purffle-shorts clip episode.mp4 --count 5 --no-upload` (leave out `--no-upload` to upload the clips too). It needs faster-whisper (free, local) or an OpenAI key for the transcript.
 
 **Can I try it without an API key?**<br>
-Yes. `python -m purffle_shorts demo` renders a sample Short with no keys. With [Ollama](https://ollama.com) installed, `make` writes scripts with a local model, also without a key.
+Yes. `python -m purffle_shorts demo` renders a sample Short with no keys, and so does the [Colab notebook](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb). With [Ollama](https://ollama.com) installed, `make` writes scripts with a local model, also without a key.
 
 **Does it work with ChatGPT, Claude, Gemini, DeepSeek or Llama?**<br>
 Yes: OpenAI GPT models (including GPT-5 and the o-series), Anthropic Claude, Google Gemini, DeepSeek, Mistral, xAI Grok, Llama through Groq, Together AI, Ollama or LM Studio, hundreds more through OpenRouter, and any OpenAI-compatible endpoint.
 
 **Can it post to TikTok or Instagram Reels?**<br>
-It uploads to YouTube only. Every video is a standard MP4 (9:16, or 1:1 / 4:5 for feeds) with a cover image, subtitles and metadata, so you can post the same file to TikTok and Reels yourself.
+Yes: `PUBLISH_TO=youtube,tiktok,instagram`. TikTok goes through Upload-Post, because TikTok's own API only lets audited apps publish public videos. Instagram can use its free official API or Upload-Post. Each network gets its own caption and the same publish slot ([details](#-publishing--scheduling)). Every video is also a standard MP4 with a cover image and subtitles, if you would rather post it yourself.
 
 **How many Shorts can it upload per day?**<br>
 Six by default (`YT_DAILY_LIMIT`). You can raise it: the YouTube API now gives uploads their own bucket of 100 a day. Posting many videos at once rarely helps a channel, so the default stays modest. Anything over the limit waits in a queue and uploads after the daily reset.
@@ -554,14 +715,16 @@ It uses the official YouTube Data API with your own Google sign-in, and sets You
 
 | Component | Technology |
 |---|---|
-| Script | Any LLM: OpenAI-compatible HTTP, plus the Anthropic SDK with structured outputs; a review pass and translation on the same providers |
-| Voice | edge-tts, OpenAI, ElevenLabs, Kokoro, Coqui, OS voices; multi-speaker joining; optional faster-whisper alignment |
-| Video | ffmpeg (xfade, zoompan, sidechaincompress, loudnorm, libass), Pillow caption, chat and post-card renderers |
-| Media | Pexels, Pixabay, local files, OpenAI Images, Pollinations; yt-dlp for clipping from URLs |
+| Script | Any LLM: OpenAI-compatible HTTP (strict JSON schema where supported), plus the Anthropic SDK with structured outputs; a rubric-graded review pass and translation on the same providers |
+| Voice | edge-tts, OpenAI, ElevenLabs, Kokoro, Coqui, OS voices; multi-speaker joining; faster-whisper alignment or pause-anchored timing; a line cache |
+| Video | ffmpeg (xfade, vstack, zoompan, select/aselect jump cuts, sidechaincompress, two-pass loudnorm, silencedetect, libass, `-progress`), Pillow caption, emoji, chat and post-card renderers drawn on several threads; optional OpenCV face framing for clips |
+| Sound | Sound effects synthesised in Python (filtered noise and swept sines, no sample files), placed relative to the measured voice loudness |
+| Media | Pexels, Pixabay, local files and background videos, OpenAI Images, Pollinations, Twemoji; yt-dlp for clipping from URLs |
+| SEO | YouTube search suggestions (no key), YouTube localizations and caption tracks |
 | Upload | YouTube Data API v3, OAuth 2.0, resumable uploads, view statistics |
-| Studio | Python standard-library HTTP server, vanilla JS/CSS, no build step |
+| Studio | Python standard-library HTTP server with Server-Sent Events and a documented JSON API, vanilla JS/CSS, no build step |
 | Agents | MCP over stdio (standard library, no SDK) |
-| State | SQLite history (videos, topics, clips, uploads, schedule, idea queue, stats), migrated automatically |
+| State | SQLite history in WAL mode (videos, topics, clips, uploads, schedule, idea queue, stats, stage timings), migrated automatically |
 
 ---
 
@@ -576,26 +739,29 @@ purffle-shorts/
 │   ├── llm.py               # 12 LLM providers + fallback chain
 │   ├── script.py            # prompt, JSON schema, Script Doctor, translation, clean-up, offline writer
 │   ├── planner.py           # AI content planner → idea queue
-│   ├── clipper.py           # long video → transcript → best moments → captioned clips
+│   ├── clipper.py           # long video → transcript → best moments → jump cuts, zoom, face framing → clips
 │   ├── tts.py               # voice engines, two-speaker joining, word alignment
+│   ├── sfx.py               # sound effects made in code (whoosh, pop, hit)
+│   ├── seo.py               # YouTube search suggestions → topics and keywords
 │   ├── timing.py            # word timing, scene timeline, caption chunks, SRT
 │   ├── media.py             # Pexels / Pixabay / local / AI images, de-duplication
-│   ├── overlays.py          # captions (Pillow + libass), chat screen, post card, hook, watermark, CTA, fonts
-│   ├── render.py            # ffmpeg segments, transitions, grading, audio mix
+│   ├── overlays.py          # captions (Pillow + libass), key words, emoji, chat screen, post card, hook, CTA, fonts
+│   ├── render.py            # ffmpeg segments, transitions, split screen, grading, audio mix
 │   ├── youtube.py           # OAuth, upload, scheduling, quota
 │   ├── analytics.py         # view counts → what the LLM learns from
 │   ├── notify.py            # Discord / Slack / webhook messages
-│   ├── topics.py            # idea queue, niches, Trends, Wikipedia, Reddit, RSS, web pages, Reddit posts, documents
+│   ├── topics.py            # idea queue, niches, YouTube searches, Trends, Wikipedia, Reddit, RSS, web pages, documents
 │   ├── history.py           # SQLite history + migrations
 │   ├── doctor.py            # setup checks (CLI and Studio)
 │   ├── mcp_server.py        # MCP server over stdio
 │   ├── studio.py            # local web app server + JSON API
 │   └── web/                 # the Studio's HTML, CSS and JS
 ├── examples/                # ready-to-render scripts (make --script examples/flamingos.json)
-├── tests/                   # unit + offline end-to-end render tests
-├── docs/                    # screenshots
+├── notebooks/               # Google Colab notebook
+├── tests/                   # unit + offline end-to-end render tests (200+)
+├── docs/                    # REST API reference (api.md), screenshots, improvement notes
 ├── .env.example             # the main settings, documented
-├── Dockerfile
+├── Dockerfile, docker-compose.yml
 └── output_videos/           # renders (gitignored)
 ```
 
@@ -615,6 +781,18 @@ purffle-shorts/
 | Videos stay `queued` | Your `YT_DAILY_LIMIT` or one of YouTube's limits was reached. Autopilot uploads them after midnight Pacific; otherwise run `upload --pending` after the reset (or raise `YT_DAILY_LIMIT`) |
 | A video failed and the log is too short | Run with `-v` for full tracebacks (also written to `data/logs/purffle.log`) |
 | Wrong-looking non-Latin captions | Install an ffmpeg with libass (Homebrew and apt builds include it); `doctor` shows whether yours has it |
+| Too many cuts, or too few | `MAX_SHOT_SECONDS` sets the longest a single shot may last (default 4.5; `0` = one shot per scene) |
+| A job is taking too long in the Studio | Press **Cancel** on its card: ffmpeg stops at once, the rest at the next stage, and nothing half-made is kept |
+| The voice sounds too processed | `VOICE_ENHANCE=false` turns off the clean-up (rumble cut, de-esser, compression) |
+| Sound effects too loud or too quiet | `SFX_VOLUME=0.5` (quieter) or `2.0` (louder); `SOUND_EFFECTS=false` or `--no-sfx` turns them off |
+| No emoji in the video | They are downloaded once from the Twemoji CDN; without internet the video is made without them. `CAPTION_EMOJI=false` turns them off |
+| Clips feel cut too tightly | Raise `CLIP_MAX_PAUSE` (for example `1.0`), or use `--no-jump-cuts` |
+| `Upload-Post HTTP 403` for TikTok | TikTok isn't in Upload-Post's free plan. Upgrade, or remove `tiktok` from `PUBLISH_TO` |
+| TikTok says `draft` | The video went to your TikTok inbox instead of going live (for example, the account needs to confirm it); open TikTok to publish it |
+| `Instagram couldn't … check INSTAGRAM_ACCESS_TOKEN` | Instagram tokens expire: create a long-lived token again, or leave Instagram to Upload-Post |
+| A network failed but YouTube worked | `purffle-shorts upload --id N` re-sends only the networks that failed; the MP4 is kept until every destination has it |
+| `BACKGROUND_VIDEO=… has no video files` | Point it at a video file or a folder that contains `.mp4`, `.mov`, `.mkv`, `.webm` or `.m4v` files |
+| Transcription fails with `metadata_errors` | Fixed: audio is now decoded by ffmpeg before Whisper, so any PyAV version works. Update PurffleShorts |
 
 ---
 

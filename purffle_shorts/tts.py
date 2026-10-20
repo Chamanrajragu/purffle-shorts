@@ -13,8 +13,12 @@ provides them, otherwise from an aligner or an estimate) so captions land exactl
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
 import logging
+import os
 import random
+import shutil
 import subprocess
 import sys
 import threading
@@ -24,7 +28,7 @@ from pathlib import Path
 
 from . import ffmpeg
 from .config import Settings
-from .timing import Word, estimate_timings, tokenize, transfer_timings
+from .timing import Word, anchored_timings, estimate_timings, tokenize, transfer_timings
 from .utils import PermanentError, http, raise_for_status, with_retries
 
 log = logging.getLogger("purffle")
@@ -68,7 +72,7 @@ class Speech:
     duration: float
     engine: str
     voice: str
-    timing: str  # native | aligned | estimated
+    timing: str  # native | aligned | anchored (pauses pinned) | estimated
     line_starts: list[float] | None = None  # multi-voice: when each line starts
 
 
@@ -254,14 +258,57 @@ _ENGINE_FUNCS = {"edge": _edge, "openai": _openai, "elevenlabs": _elevenlabs, "k
 
 
 # ------------------------------------------------------------------------------------------ aligners
-def _align_faster_whisper(audio: Path, language: str) -> list[Word]:
+def _cuda() -> bool:
+    try:
+        import ctranslate2  # installed with faster-whisper
+        return ctranslate2.get_cuda_device_count() > 0
+    except Exception:
+        return False
+
+
+def whisper_model(settings: Settings | None = None) -> str:
+    """WHISPER_MODEL, or for "auto" the most accurate model that is still quick on this machine."""
+    name = (settings.whisper_model if settings else "") or "auto"
+    if name != "auto":
+        return name
+    return "large-v3-turbo" if _cuda() else "small"
+
+
+def _align_faster_whisper(audio: Path, language: str, model_name: str = "small", *, prompt: str = "",
+                          vad: bool = False) -> list[Word]:
+    """Word timestamps from faster-whisper. ``prompt`` (the known script) helps it spell names and numbers the
+    way they are written; ``vad`` skips silence and music in long recordings and stops it from inventing text."""
     from faster_whisper import WhisperModel  # optional dependency
+    cuda = _cuda()
     with _model_lock:
-        model = _model_cache.get("whisper")
+        key = f"whisper:{model_name}"
+        model = _model_cache.get(key)
         if model is None:
-            model = _model_cache["whisper"] = WhisperModel("base", device="auto", compute_type="int8")
-        segments, _ = model.transcribe(str(audio), language=language, word_timestamps=True)
+            model = _model_cache[key] = WhisperModel(model_name, device="cuda" if cuda else "cpu",
+                                                     compute_type="float16" if cuda else "int8")
+        kwargs = {"language": language or None, "word_timestamps": True}
+        if prompt:
+            kwargs["initial_prompt"] = prompt[:800]
+        if vad:
+            kwargs.update(vad_filter=True, condition_on_previous_text=False)
+        segments, _ = model.transcribe(_pcm16k(audio), **kwargs)
         return [Word(w.word.strip(), w.start, w.end) for seg in segments for w in (seg.words or [])]
+
+
+def _pcm16k(audio: Path):
+    """The audio as the 16 kHz mono float samples Whisper works on, decoded by our ffmpeg. faster-whisper's
+    own decoder (PyAV) breaks whenever the two packages' versions drift apart (faster-whisper 1.2.1 with
+    PyAV 19 fails with "unexpected keyword argument 'metadata_errors'")."""
+    import subprocess
+
+    import numpy as np  # installed with faster-whisper
+
+    from . import ffmpeg
+    proc = subprocess.run([ffmpeg.ffmpeg_bin(), "-v", "error", "-nostdin", "-i", str(audio), "-vn", "-ac", "1",
+                           "-ar", "16000", "-f", "f32le", "-"], capture_output=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"could not decode {Path(audio).name}: {proc.stderr.decode(errors='replace')[-300:]}")
+    return np.frombuffer(proc.stdout, dtype=np.float32)
 
 
 def _align_openai(audio: Path, language: str, api_key: str) -> list[Word]:
@@ -276,14 +323,14 @@ def _align_openai(audio: Path, language: str, api_key: str) -> list[Word]:
     return [Word(w["word"], float(w["start"]), float(w["end"])) for w in r.json().get("words", [])]
 
 
-def _align(audio: Path, settings: Settings) -> tuple[list[Word], str]:
+def _align(audio: Path, settings: Settings, text: str = "") -> tuple[list[Word], str]:
     mode = settings.align
     if mode == "none":
         return [], "estimated"
     lang = settings.language.split("-")[0]
     if mode in ("auto", "faster-whisper"):
         try:
-            return _align_faster_whisper(audio, lang), "aligned"
+            return _align_faster_whisper(audio, lang, whisper_model(settings), prompt=text), "aligned"
         except ImportError:
             if mode == "faster-whisper":
                 log.warning("ALIGN=faster-whisper but it isn't installed (pip install faster-whisper)")
@@ -297,10 +344,77 @@ def _align(audio: Path, settings: Settings) -> tuple[list[Word], str]:
     return [], "estimated"
 
 
+# ------------------------------------------------------------------------------------------ voice cache
+CACHED_ENGINES = {"edge", "openai", "elevenlabs", "kokoro", "coqui"}
+CACHE_LIMIT_MB = 400
+
+
+def _cache_dir(text: str, settings: Settings, engine: str) -> Path | None:
+    """Where this exact line, in this exact voice, is kept. None when it can't be reused (a rotating voice
+    list picks a different voice each time, and the silent/system voices cost nothing to redo)."""
+    if not settings.voice_cache or engine not in CACHED_ENGINES or "," in settings.tts_voice:
+        return None
+    parts = [engine, settings.tts_voice, settings.language, settings.tts_rate, settings.tts_model,
+             settings.tts_instructions if engine == "openai" else "", settings.align, text]
+    key = hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()[:32]
+    return settings.data_path / "cache" / "voice" / key[:2] / key
+
+
+def _cache_load(d: Path | None) -> Speech | None:
+    if d is None or not (d / "speech.json").exists():
+        return None
+    try:
+        meta = json.loads((d / "speech.json").read_text(encoding="utf-8"))
+        audio = d / meta["audio"]
+        if not audio.exists():
+            return None
+        os.utime(d / "speech.json")  # most recently used: kept longest
+        return Speech(audio=audio, words=[Word(*w) for w in meta["words"]], duration=float(meta["duration"]),
+                      engine=meta["engine"], voice=meta["voice"], timing=meta["timing"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _cache_store(d: Path | None, sp: Speech) -> None:
+    if d is None:
+        return
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        name = "audio" + sp.audio.suffix
+        shutil.copyfile(sp.audio, d / name)
+        meta = {"audio": name, "words": [[w.text, w.start, w.end] for w in sp.words], "duration": sp.duration,
+                "engine": sp.engine, "voice": sp.voice, "timing": sp.timing}
+        (d / "speech.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+        if random.random() < 0.1:
+            _cache_prune(d.parent.parent)
+    except OSError as e:
+        log.debug("voice cache write failed: %s", e)
+
+
+def _cache_prune(root: Path, limit_mb: int = CACHE_LIMIT_MB) -> None:
+    """Drop the least recently used lines once the cache is over its size limit."""
+    entries = []
+    for meta in root.glob("*/*/speech.json"):
+        size = sum(f.stat().st_size for f in meta.parent.iterdir() if f.is_file())
+        entries.append((meta.stat().st_mtime, size, meta.parent))
+    total = sum(e[1] for e in entries)
+    for _, size, d in sorted(entries):
+        if total <= limit_mb * 1024 * 1024:
+            break
+        shutil.rmtree(d, ignore_errors=True)
+        total -= size
+
+
 def synthesize(text: str, out_dir: Path, settings: Settings) -> Speech:
-    """Speak ``text`` and return audio + one timed Word per script token."""
+    """Speak ``text`` and return audio + one timed Word per script token. A line spoken before with the same
+    voice comes from the voice cache, so re-rendering an edited script only voices what changed."""
     engine = settings.tts_engine if settings.tts_engine in _ENGINE_FUNCS else "edge"
     out_dir.mkdir(parents=True, exist_ok=True)
+    cache = _cache_dir(text, settings, engine)
+    hit = _cache_load(cache)
+    if hit:
+        log.info("Voice: %s/%s, %.1fs (from the voice cache)", hit.engine, hit.voice, hit.duration)
+        return hit
     audio, native, voice = _ENGINE_FUNCS[engine](text, out_dir, settings)
     dur = ffmpeg.duration(audio)
     if dur <= 0:
@@ -311,10 +425,16 @@ def synthesize(text: str, out_dir: Path, settings: Settings) -> Speech:
     elif engine == "silent":
         words, timing = estimate_timings(tokens, dur), "estimated"
     else:
-        aligned, timing = _align(audio, settings)
-        words = transfer_timings(tokens, aligned, dur) if aligned else estimate_timings(tokens, dur)
+        aligned, timing = _align(audio, settings, text)
+        if aligned:
+            words = transfer_timings(tokens, aligned, dur)
+        else:  # no aligner: pin phrase ends to the pauses in the audio, estimate only in between
+            words, pinned = anchored_timings(tokens, dur, ffmpeg.silences(audio))
+            timing = "anchored" if pinned else "estimated"
     log.info("Voice: %s/%s, %.1fs, %d words (%s timing)", engine, voice, dur, len(words), timing)
-    return Speech(audio=audio, words=words, duration=dur, engine=engine, voice=voice, timing=timing)
+    speech = Speech(audio=audio, words=words, duration=dur, engine=engine, voice=voice, timing=timing)
+    _cache_store(cache, speech)
+    return speech
 
 
 def second_voice(settings: Settings) -> str:
@@ -370,7 +490,7 @@ def synthesize_lines(lines: list[tuple[str, str]], out_dir: Path, settings: Sett
     ffmpeg.run(["-f", "concat", "-safe", "0", "-i", "lines.txt", "-c:a", "pcm_s16le", str(audio.name)],
                label="join voices", cwd=out_dir)
     dur = ffmpeg.duration(audio)
-    timing = min((p.timing for p in parts), key=["estimated", "aligned", "native"].index)
+    timing = min((p.timing for p in parts), key=["estimated", "anchored", "aligned", "native"].index)
     voices = "/".join(dict.fromkeys(p.voice for p in parts))
     log.info("Voices: %s, %.1fs, %d lines, %d words (%s timing)", voices, dur, len(lines), len(words), timing)
     return Speech(audio=audio, words=words, duration=dur, engine=parts[0].engine, voice=voices, timing=timing,
