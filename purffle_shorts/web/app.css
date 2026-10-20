@@ -332,15 +332,17 @@ details.more > summary + * { margin-top: 12px; }
 .live .lhead { display: flex; align-items: center; gap: 10px; }
 .live h3 { margin: 0; font-size: 17px; }
 .timeline { display: grid; grid-template-columns: repeat(var(--n, 9), minmax(0, 1fr)); border: 1px solid var(--rule-2); border-radius: 3px;
-  overflow: hidden; background: var(--well); }
+  overflow: hidden; background: var(--well); container-type: inline-size; }
 .timeline span { position: relative; height: 34px; border-left: 1px solid var(--rule); display: flex; align-items: flex-end;
   padding: 0 0 5px 6px; font: 500 9px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--ink-4); overflow: hidden; }
 .timeline span:first-child { border-left: 0; }
 .timeline span.done { background: var(--rule); color: var(--ink-2); }
 .timeline span.done::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--ink-3); }
 .timeline span.now { color: var(--ink); background: var(--tally-soft); }
-.timeline span.now::after { content: ""; position: absolute; top: 0; bottom: 0; left: calc(var(--sub, .5) * 100%); width: 2px; background: var(--tally);
+.timeline span.now::after { content: ""; position: absolute; top: 0; bottom: 17px; left: calc(var(--sub, .5) * 100%); width: 2px; background: var(--tally);
   animation: drift 1.4s ease-in-out infinite alternate; }
+/* a narrow card (the live job beside the brief): tighter labels so CAPTIONS still fits */
+@container (max-width: 560px) { .timeline span { font-size: 8.5px; letter-spacing: 0; padding-left: 4px; } }
 @keyframes drift { from { transform: translateX(-3px); } to { transform: translateX(3px); } }
 .live .stage-name { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--ink-3); }
 .live .stage-name b { color: var(--ink); font-weight: 720; }
@@ -496,6 +498,7 @@ pre.code { margin: 0; background: var(--well); border: 1px solid var(--rule); bo
   .job-top .acts { grid-column: 1 / -1; }
   .job .pbar, .job .err, .job .chips, .job .log, .job .timeline { margin-left: 0; }
   .timeline span { font-size: 0; padding: 0; height: 12px; }
+  .timeline span.now::after { bottom: 0; }
 }
 @media (max-width: 480px) { .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); } .swatches { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lib { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; } .kpi b { font-size: 26px; } .card { padding: 16px; } }
