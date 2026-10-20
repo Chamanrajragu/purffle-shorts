@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Added
+- **A new Studio design and logo.**
+  - Warm paper-and-ink colours with one signal colour, the red of a camera's tally light, in a light theme, a dark "control room" theme, or the system's choice (switch in the sidebar).
+  - Schibsted Grotesk and JetBrains Mono, bundled as Latin subsets under the OFL, so nothing loads from a CDN.
+  - A numbered brief on the Create page, with a line drawing for each format, and a program monitor that previews the caption style, shape and safe area.
+  - An edit-timeline progress display on Create and in the Queue, and the library as a contact sheet. A record-style **Create video** button (⌘↵).
+  - `#library/<id>` links that open a video directly.
+  - The new mark (a "P" whose bowl is a play button) in `docs/logo.svg`, `docs/logo-dark.svg` and the favicon, and a new `docs/social-preview.png`.
 - **TikTok, Instagram Reels and more** (`PUBLISH_TO=youtube,tiktok,instagram`, `--publish-to`). Each video goes to every listed network with a caption cut to that network's length and without `#shorts`, at the same publish slot as YouTube.
   - TikTok and Facebook, Threads, X, LinkedIn, Bluesky and Pinterest go through the Upload-Post relay (`UPLOAD_POST_API_KEY`, `UPLOAD_POST_USER`, `TIKTOK_PRIVACY`). TikTok's own API only lets audited apps publish public videos.
   - Instagram can instead use its official API (`INSTAGRAM_USER_ID`, `INSTAGRAM_ACCESS_TOKEN`), with a resumable upload straight from your computer.

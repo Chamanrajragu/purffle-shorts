@@ -1,5 +1,10 @@
 <div align="center">
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Chamanrajragu/purffle-shorts/main/docs/logo-dark.svg">
+  <img src="https://raw.githubusercontent.com/Chamanrajragu/purffle-shorts/main/docs/logo.svg" alt="PurffleShorts" width="300">
+</picture>
+
 # PurffleShorts — Free AI YouTube Shorts Generator, Faceless Video Maker & Opus Clip Alternative
 
 **English** · [简体中文](https://github.com/Chamanrajragu/purffle-shorts/blob/main/README.zh-CN.md) · [Español](https://github.com/Chamanrajragu/purffle-shorts/blob/main/README.es.md) · [Português](https://github.com/Chamanrajragu/purffle-shorts/blob/main/README.pt-BR.md) · [हिन्दी](https://github.com/Chamanrajragu/purffle-shorts/blob/main/README.hi.md) · [日本語](https://github.com/Chamanrajragu/purffle-shorts/blob/main/README.ja.md)
@@ -143,6 +148,7 @@ It is made for **content creators**, **faceless YouTube channels**, **educators*
 | **Search-led SEO** | Topics and keywords from real YouTube searches, titles and descriptions localised for other languages, optional caption-track upload |
 | **Better scripts** | Script Doctor 2.0: a six-part rubric, automatic checks, and a rewrite kept only if it scores at least as well |
 | **Faster, live renders** | About 40% faster on the same machine, a Studio that pushes progress with a time-left estimate, and cancel at any time |
+| **A new Studio** | Its own design in light and dark: a numbered brief, a program monitor, an edit timeline for every job, the library as a contact sheet, and a new logo |
 | **TikTok and Instagram** | `PUBLISH_TO=youtube,tiktok,instagram`: one video to every network, scheduled together, each result tracked and retried on its own |
 | **Run it anywhere** | Google Colab notebook, docker compose with the published image, REST API with an n8n recipe |
 
@@ -194,13 +200,21 @@ Open-source Shorts tools each cover part of the job: some write videos from a to
 
 <p align="center"><img src="https://raw.githubusercontent.com/Chamanrajragu/purffle-shorts/main/docs/caption-styles.jpg" alt="The six PurffleShorts caption styles side by side: bold, boxed, neon, clean, karaoke and minimal" width="880"></p>
 
-**Studio**, the local web app: pick a format, shape and look, then draft the script or create the video.
+**Studio**, the local web app, in light and dark. The Create page is a numbered brief (subject, format, shape and voice, look and sound, model and publishing) beside a program monitor that previews the caption style, shape and safe area.
 
-<p align="center"><img src="https://raw.githubusercontent.com/Chamanrajragu/purffle-shorts/main/docs/studio.png" alt="PurffleShorts Studio Create page: topic, web page, idea queue or surprise-me sources, the Auto card and eleven format cards including the new dialogue, text-story and Reddit-story formats, language, length and aspect controls, and a live caption preview" width="880"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/Chamanrajragu/purffle-shorts/main/docs/studio-create.jpg" alt="PurffleShorts Studio Create page in the light theme: a numbered brief with the topic, twelve format tiles with line drawings, and a dark program monitor previewing a 9:16 frame with the hook, captions, safe-area guides and a timecode" width="880"></p>
 
-The library: every video with its format, language, length and status. Open one to play it, edit and re-render it, upload or delete it.
+The library is a contact sheet of everything you made. Open a video to play it, publish it to YouTube, TikTok and Instagram, edit and re-render it, or delete it.
 
-<p align="center"><img src="https://raw.githubusercontent.com/Chamanrajragu/purffle-shorts/main/docs/studio-library.png" alt="PurffleShorts Studio Library page showing rendered Shorts as thumbnails with status, format, language and duration" width="880"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/Chamanrajragu/purffle-shorts/main/docs/studio-library-dark.jpg" alt="PurffleShorts Studio Library in the dark theme: five Shorts as 9:16 thumbnails (a flamingo facts video, a text-message story, a two-voice dialogue, a Reddit-style story and an octopus facts video) with numbers, formats, languages and durations" width="880"></p>
+
+<table><tr>
+<td width="50%"><img src="https://raw.githubusercontent.com/Chamanrajragu/purffle-shorts/main/docs/studio-video.jpg" alt="A video opened in the Studio: the player, Publish, Edit and Delete buttons, and the length, size, voice, topic and folder, with the description and tags"></td>
+<td width="50%"><img src="https://raw.githubusercontent.com/Chamanrajragu/purffle-shorts/main/docs/studio-queue.jpg" alt="The Studio Queue in the dark theme: a running render with its stage timeline (topic, script, review, voice, footage and captions done, render in progress), time left and live log, and finished jobs with Watch buttons"></td>
+</tr><tr>
+<td><sub>A video's page: player, publishing, the details and the description.</sub></td>
+<td><sub>The queue: each job's stage timeline, time left and live log.</sub></td>
+</tr></table>
 
 **Command line**: `doctor` checks the setup, `make` renders a Short.
 
@@ -587,7 +601,7 @@ python -m purffle_shorts studio        # opens http://127.0.0.1:8765
 - **Library:** thumbnails with status, format, language and score; open one to play it, download the MP4 or captions, upload it, edit and re-render it, or delete it.
 - **Ideas, Clip, Channel and System** pages: plan and queue ideas, clip long videos (with a brief, jump cuts, zoom and face tracking; each clip shows its virality score), see views per video and per format, run the setup checks and copy the MCP config.
 
-The page needs no build step and loads nothing from a CDN. The Studio listens on localhost only, refuses requests for any other host name, sends a strict Content-Security-Policy, and every action needs a token (new each session, or fixed with `STUDIO_TOKEN`). On a server, `STUDIO_PASSWORD` puts a password on every page and API call.
+The design is its own: warm paper and ink with one signal colour (a camera's red tally light), Schibsted Grotesk and JetBrains Mono bundled with the app, a light and a dark theme (or the system's), and layouts that work on a phone. The page needs no build step and loads nothing from a CDN. The Studio listens on localhost only, refuses requests for any other host name, sends a strict Content-Security-Policy, and every action needs a token (new each session, or fixed with `STUDIO_TOKEN`). On a server, `STUDIO_PASSWORD` puts a password on every page and API call.
 
 ---
 

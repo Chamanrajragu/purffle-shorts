@@ -188,3 +188,25 @@ def test_running_jobs_report_an_eta(server):
     st._sub(0.5)
     assert st.eta() == 3.0  # the second half of render (2 s) + the default 1 s for the check
     assert 0 < st._pct < 100
+
+
+def test_bundled_fonts_and_brand_assets_are_served(server):
+    app, port = server
+    status, headers, body = req(port, "GET", "/static/fonts/SchibstedGrotesk.woff2")
+    assert status == 200 and headers["Content-Type"] == "font/woff2" and body[:4] == b"wOF2"
+    assert "max-age" in headers["Cache-Control"]
+    assert req(port, "GET", "/static/fonts/JetBrainsMono.woff2")[0] == 200
+    assert req(port, "GET", "/static/fonts/missing.woff2")[0] == 404
+    assert req(port, "GET", "/static/fonts/../app.js")[0] == 404
+    status, headers, body = req(port, "GET", "/static/icon.svg")
+    assert status == 200 and b"<svg" in body
+
+
+def test_page_has_no_inline_styles_or_scripts(server):
+    """The Content-Security-Policy forbids inline styles and scripts, so the markup must not use them."""
+    import re
+    app, port = server
+    html = req(port, "GET", "/")[2].decode()
+    js = req(port, "GET", "/static/app.js")[2].decode()
+    assert not re.search(r"\sstyle=", html) and not re.search(r"<script>(?!\s*</script>)", html)
+    assert not re.search(r"""\sstyle=["']""", js)
