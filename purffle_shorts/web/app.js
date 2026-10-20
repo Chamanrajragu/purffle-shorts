@@ -7,26 +7,42 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 const I = {
-  check: '<svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>',
-  x: '<svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>',
-  info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v5h1"/></svg>',
-  play: '<svg viewBox="0 0 24 24"><path d="M7 4.5v15l12.5-7.5z"/></svg>',
-  pen: '<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4z"/></svg>',
-  up: '<svg viewBox="0 0 24 24"><path d="M18 15l-6-6-6 6"/></svg>',
-  down: '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>',
-  trash: '<svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="M5 12.5 10 17 19 7"/></svg>',
+  x: '<svg viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>',
+  info: '<svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M12 10.5V16M12 7.6v.1"/></svg>',
+  play: '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z" fill="currentColor"/></svg>',
+  pen: '<svg viewBox="0 0 24 24"><path d="M4 20h4.5L19 9.5 14.5 5 4 15.5z"/><path d="M12.5 7l4.5 4.5"/></svg>',
+  up: '<svg viewBox="0 0 24 24"><path d="M6.5 14.5 12 9l5.5 5.5"/></svg>',
+  down: '<svg viewBox="0 0 24 24"><path d="M6.5 9.5 12 15l5.5-5.5"/></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10.5 11v5.5M13.5 11v5.5"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
-  upload: '<svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>',
-  dl: '<svg viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></svg>',
-  yt: '<svg viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="4"/><path d="M10 9v6l5-3z"/></svg>',
-  spark: '<svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg>',
-  film: '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18M17 3v18M3 8h4M3 16h4M17 8h4M17 16h4"/></svg>',
-  doc: '<svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>',
-  bulb: '<svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg>',
-  scissors: '<svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.6 7.6 20 18M8.6 16.4 20 6"/></svg>',
-  chart: '<svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
-  refresh: '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg>',
-  copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>',
+  upload: '<svg viewBox="0 0 24 24"><path d="M12 15.5V4M7.5 8.5 12 4l4.5 4.5M4.5 15v4.5h15V15"/></svg>',
+  dl: '<svg viewBox="0 0 24 24"><path d="M12 4v11.5M7.5 11l4.5 4.5 4.5-4.5M4.5 15v4.5h15V15"/></svg>',
+  yt: '<svg viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="3.5"/><path d="M10.5 9.5v5l4-2.5z" fill="currentColor"/></svg>',
+  spark: '<svg viewBox="0 0 24 24"><path d="M4 18l6.5-6.5M14 4v3M14 11v3M10 7.5h3M15 7.5h3M17.5 14.5l2 2"/><circle cx="14" cy="7.5" r="1.2" fill="currentColor"/></svg>',
+  film: '<svg viewBox="0 0 24 24"><rect x="6" y="3.5" width="12" height="17" rx="1.5"/><path d="M6 7.5H3.5M6 12H3.5M6 16.5H3.5M18 7.5h2.5M18 12h2.5M18 16.5h2.5"/></svg>',
+  doc: '<svg viewBox="0 0 24 24"><path d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14 3.5V8h5M9 12.5h6.5M9 16h4.5"/></svg>',
+  bulb: '<svg viewBox="0 0 24 24"><rect x="5" y="3.5" width="14" height="17" rx="1.2"/><path d="M8.5 8h7M8.5 11.5h7M8.5 15h4"/></svg>',
+  scissors: '<svg viewBox="0 0 24 24"><circle cx="6.5" cy="6.5" r="2.8"/><circle cx="6.5" cy="17.5" r="2.8"/><path d="M8.7 8.2 20 17.5M8.7 15.8 20 6.5"/></svg>',
+  chart: '<svg viewBox="0 0 24 24"><path d="M4 20h16M6.5 20v-6M11 20V8M15.5 20v-9M20 20V5"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4"/></svg>',
+  copy: '<svg viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="1.2"/><path d="M15.5 8.5v-4h-11v11h4"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24"><path d="M5 12h13M13.5 7.5 18 12l-4.5 4.5"/></svg>',
+};
+// One line drawing per format, so the choice reads at a glance.
+const G = {
+  auto: '<svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.3" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></svg>',
+  facts: '<svg viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h8M9 17.5h10"/><circle cx="4.8" cy="6.5" r="1.2" fill="currentColor"/><circle cx="4.8" cy="12" r="1.2" fill="currentColor"/><circle cx="4.8" cy="17.5" r="1.2" fill="currentColor"/></svg>',
+  story: '<svg viewBox="0 0 24 24"><path d="M3.5 17c3-6 5.5-6 8.5 0s5.5 0 8.5-9"/><circle cx="3.5" cy="17" r="1.5" fill="currentColor"/><path d="M20.5 8V4l-3 1.5"/></svg>',
+  listicle: '<svg viewBox="0 0 24 24"><path d="M3.5 20.5h17M9 20.5V9.5h6v11M3.5 20.5v-6.5H9M15 20.5V12.5h5.5v8"/></svg>',
+  myth: '<svg viewBox="0 0 24 24"><path d="M3.5 12.5l3 3 5-6"/><path d="M14.5 9l6 6M20.5 9l-6 6"/></svg>',
+  quiz: '<svg viewBox="0 0 24 24"><path d="M4 5.5h16v10H11l-4.5 4v-4H4z"/><path d="M10.2 8.7a1.9 1.9 0 1 1 2.6 1.8c-.6.3-.8.6-.8 1.2M12 13.3v.1"/></svg>',
+  explainer: '<svg viewBox="0 0 24 24"><circle cx="6.5" cy="12" r="3"/><circle cx="17.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/><path d="M9.2 10.7 15.2 7.6M9.2 13.3l6 3.1"/></svg>',
+  motivational: '<svg viewBox="0 0 24 24"><path d="M3.5 19.5h4v-4h4v-4h4v-4h5"/><path d="M17 4.5h3.5V8"/></svg>',
+  news: '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="13" height="14" rx="1"/><path d="M16.5 9h4v8.5a1.5 1.5 0 0 1-3 0M6.5 9h7M6.5 12.5h7M6.5 16h4"/></svg>',
+  dialogue: '<svg viewBox="0 0 24 24"><path d="M3.5 4.5h10v7H8l-3 2.5v-2.5H3.5z"/><path d="M16.5 9.5h4v7H19v2.5l-3-2.5h-5.5v-3"/></svg>',
+  chat: '<svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2"/><path d="M8.5 7h5M10.5 10.5h5M8.5 14h4"/><path d="M11 18.5h2"/></svg>',
+  reddit: '<svg viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="16" rx="1.5"/><path d="M7.5 10.5 9.5 8l2 2.5M9.5 8v6M13.5 9h3.5M13.5 12h3.5M7.5 16.5h9.5"/></svg>',
 };
 
 const FORMATS = [
@@ -47,6 +63,14 @@ const MULTI = new Set(["dialogue", "chat"]);
 const STAGES = [["topic", "Topic"], ["script", "Script"], ["review", "Review"], ["voice", "Voice"], ["footage", "Footage"],
   ["captions", "Captions"], ["render", "Render"], ["check", "Check"], ["upload", "Upload"]];
 const STATUS_CHIP = { uploaded: "ok", scheduled: "blue", rendered: "accent", queued: "", failed: "bad" };
+const VIEW_NO = { create: "01", library: "02", queue: "03", ideas: "04", clip: "05", channel: "06", system: "07" };
+// The page heading: a numbered eyebrow, the title and one line of what the page is for.
+function head(view, title, text, aside = "") {
+  return `<div class="page-head"><div><p class="eyebrow"><b>${VIEW_NO[view] || "00"}</b>Studio</p><h1>${title}</h1>${text ? `<p>${text}</p>` : ""}</div>${aside}</div>`;
+}
+// A sheet's heading: its number in the brief, the title, and anything that sits on the right.
+const sh = (n, title, aside = "") => `<header class="sheet-h"><span class="n">${n}</span><h2>${title}</h2>${aside ? `<span class="aside">${aside}</span>` : ""}</header>`;
+const empty = (k, title, text) => `<div class="empty" data-k="${k}"><b>${title}</b>${text}</div>`;
 const KIND_ICON = { make: I.film, draft: I.pen, clip: I.scissors, plan: I.bulb, upload: I.upload, stats: I.chart };
 
 const store = {
@@ -112,12 +136,27 @@ const words = t => (t || "").trim().split(/\s+/).filter(Boolean).length;
 const saveForm = () => store.set("form", S.form);
 const saveDraft = () => store.set("draft", S.draft);
 
+// ------------------------------------------------------------------ theme (light, dark, or the system's)
+function applyTheme(t) {
+  if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  else delete document.documentElement.dataset.theme;
+  $$("[data-theme-set]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.themeSet === (t || "auto"))));
+  const dark = t === "dark" || (t !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+  const meta = $('meta[name="theme-color"]');
+  if (meta) meta.content = dark ? "#11100e" : "#f2eee5";
+}
+applyTheme(store.get("theme", "auto"));
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-theme-set]");
+  if (b) { store.set("theme", b.dataset.themeSet); applyTheme(b.dataset.themeSet); }
+});
+
 // ------------------------------------------------------------------ boot & routing
 async function boot() {
   try {
     [S.info, S.options] = await Promise.all([get("/api/info"), get("/api/options")]);
   } catch (e) {
-    $("#main").innerHTML = `<div class="empty"><b>Can't reach the Studio server</b>${esc(e.message)}</div>`;
+    $("#main").innerHTML = empty("NO SIGNAL", "Can't reach the Studio server", esc(e.message));
     return;
   }
   const i = S.info;
@@ -147,8 +186,8 @@ async function boot() {
 function status() {
   const i = S.info;
   $("#status").innerHTML = [
-    ["AI", i.llm_ok ? i.llm : "demo only"], ["Voice", i.tts], ["Uploads left", i.upload ? `${Math.max(0, i.quota_left)} / ${i.daily_limit}` : "off"],
-  ].map(([k, v]) => `<div class="row"><span>${k}</span><b title="${esc(v)}">${esc(v)}</b></div>`).join("");
+    ["Model", i.llm_ok ? i.llm : "demo only", !i.llm_ok], ["Voice", i.tts], ["Publish", i.upload ? `${Math.max(0, i.quota_left)} of ${i.daily_limit} today` : "off", !i.upload],
+  ].map(([k, v, off]) => `<dt>${k}</dt><dd class="${off ? "off" : ""}" title="${esc(v)}">${esc(v)}</dd>`).join("");
   const ib = $("#ibadge");
   ib.hidden = !i.ideas;
   ib.textContent = i.ideas;
@@ -303,8 +342,8 @@ async function startDraft() {
 function viewCreate() {
   const i = S.info, f = S.form;
   $("#main").innerHTML = `
-  <div class="page-head"><div><h1>Create</h1><p>From an idea to a finished, captioned video. Draft first to read and edit the script, or go straight to the render.</p></div></div>
-  ${i.llm_ok ? "" : `<div class="banner">${I.info}<p><b>No AI model is set up yet.</b> Demo mode renders a sample video with no keys. Add one API key (or run Ollama) in <span class="mono">.env</span> to write real scripts — see <a href="#system">System</a>.</p></div>`}
+  ${head("create", "New Short", "Write the brief, then draft the script to read and edit it, or go straight to the render.")}
+  ${i.llm_ok ? "" : `<div class="banner">${I.info}<p><b>No AI model is set up yet.</b> Demo mode renders a sample video with no keys. Add one API key (or run Ollama) in <span class="mono">.env</span> to write real scripts. <a href="#system">Check the setup</a></p></div>`}
   <div class="create"><div id="form"></div><div class="sticky" id="side"></div></div>`;
   drawForm();
   drawSide();
@@ -317,22 +356,22 @@ function drawForm() {
   const multi = MULTI.has(f.style);
   $("#form").innerHTML = `
   <section class="card">
-    <h2>What's it about?</h2>
+    ${sh("01", "What is it about?")}
     <div class="src-tabs">${seg("mode", [["topic", "Topic"], ["url", "Web page"], ["queue", "Idea queue"], ["auto", "Surprise me"]], f.mode)}</div>
-    ${f.mode === "topic" ? `<div class="field"><input type="text" data-f="topic" value="${esc(f.topic)}" placeholder="e.g. Why octopuses have three hearts" aria-label="Topic"><p class="hint">Be as broad or specific as you like — the AI finds the surprising angle.</p></div>`
-    : f.mode === "url" ? `<div class="field"><input type="url" data-f="url" value="${esc(f.url)}" placeholder="https://… an article, blog post or Wikipedia page" aria-label="Web page"><p class="hint">The page's text becomes the script's source material.</p></div>`
-    : f.mode === "queue" ? `<p class="hint">Uses the oldest idea from your queue (${i_ideas()} waiting) — plan more on the <a href="#ideas">Ideas</a> page.</p>`
+    ${f.mode === "topic" ? `<div class="field big"><input type="text" data-f="topic" value="${esc(f.topic)}" placeholder="Why octopuses have three hearts" aria-label="Topic"><p class="hint">Broad or specific: the AI finds the surprising angle, using what people actually search for.</p></div>`
+    : f.mode === "url" ? `<div class="field big"><input type="url" data-f="url" value="${esc(f.url)}" placeholder="https://… an article, a blog post or a Reddit post" aria-label="Web page"><p class="hint">The page's text becomes the script's source material.</p></div>`
+    : f.mode === "queue" ? `<p class="hint">Uses the oldest idea in your queue (${i_ideas()} waiting). Plan more on the <a href="#ideas">Ideas</a> page.</p>`
     : `<p class="hint">Picks a fresh topic from your niches and topic sources in .env.</p>`}
   </section>
 
   <section class="card">
-    <h2>Format</h2>
+    ${sh("02", "Format", `${FORMATS.length} kinds`)}
     <div class="formats">${FORMATS.map(([k, name, blurb, isNew]) =>
-      `<button type="button" class="fmt" data-seg="style" data-v="${k}" aria-pressed="${f.style === k}"><b>${name}${isNew ? '<span class="new">NEW</span>' : ""}</b><span>${blurb}</span></button>`).join("")}</div>
+      `<button type="button" class="fmt" data-seg="style" data-v="${k}" aria-pressed="${f.style === k}"><span class="g">${G[k] || G.auto}</span><b>${name}${isNew ? '<span class="new">new</span>' : ""}</b><span>${blurb}</span></button>`).join("")}</div>
   </section>
 
   <section class="card">
-    <h2>Shape & voice</h2>
+    ${sh("03", "Shape and voice")}
     <div class="grid2">
       <div class="field"><label>Language</label>${sel("language", langs.map(([c, n]) => [c, `${n} (${c})`]), f.language)}</div>
       <div class="field"><label>Length</label><div class="range-row"><input type="range" min="15" max="120" step="5" data-f="duration" value="${f.duration}" aria-label="Length in seconds"><output id="dur-out">${f.duration}s</output></div></div>
@@ -347,7 +386,7 @@ function drawForm() {
   </section>
 
   <section class="card">
-    <h2>Look</h2>
+    ${sh("04", "Look and sound")}
     <div class="swatches">${o.caption_styles.map(c => `<button type="button" class="sw" data-seg="caption_style" data-v="${c}" aria-pressed="${f.caption_style === c}">${capSample(c)}<small>${c}</small></button>`).join("")}</div>
     <div class="field"><label>Caption position</label>${seg("caption_position", [["upper", "Top"], ["center", "Middle"], ["lower", "Lower third"]], f.caption_position)}</div>
     <div class="grid2">
@@ -370,7 +409,7 @@ function drawForm() {
   </section>
 
   <section class="card">
-    <h2>AI & publishing</h2>
+    ${sh("05", "Model and publishing")}
     <div class="grid2">
       <div class="field"><label>AI model provider</label>${sel("provider", provs, f.provider)}</div>
       <div class="field"><label>Model</label><input type="text" data-f="model" value="${esc(f.model)}" placeholder="provider default"></div>
@@ -384,17 +423,18 @@ function drawForm() {
   </section>
 
   <div class="go-row">
-    <button class="btn" id="draft-btn" type="button">${I.pen}Draft script</button>
-    <button class="btn primary" id="make-btn" type="button">${I.play}Create video</button>
+    <button class="btn" id="draft-btn" type="button">${I.pen}Draft the script first</button>
+    <button class="btn rec" id="make-btn" type="button"><span class="dot"></span>Create video<kbd>${/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl"} ↵</kbd></button>
   </div>`;
   bindForm();
   loadVoices();
 }
 const i_ideas = () => S.info.ideas || 0;
 
-function capSample(style) {
-  if (style === "karaoke") return `<span class="cap karaoke"><u>THREE</u> <i>HEARTS</i></span>`;
-  return `<span class="cap ${style}">THREE <i>HEARTS</i></span>`;
+function capSample(style, position = "") {
+  const at = position === "upper" ? " at-upper" : position === "lower" ? " at-lower" : "";
+  if (style === "karaoke") return `<span class="cap karaoke${at}"><u>THREE</u> <i>HEARTS</i></span>`;
+  return `<span class="cap ${style}${at}">THREE <i>HEARTS</i></span>`;
 }
 
 function bindForm() {
@@ -408,7 +448,7 @@ function bindForm() {
     saveForm();
     if (k === "mode" || (k === "style" && MULTI.has(v) !== multiBefore)) return drawForm();
     $$(`[data-seg="${k}"]`, root).forEach(x => x.setAttribute("aria-pressed", String(x.dataset.v === v)));
-    if (k === "caption_style" || k === "aspect") drawSide();
+    if (k === "caption_style" || k === "aspect" || k === "caption_position") drawSide();
   });
   root.addEventListener("input", e => {
     const el = e.target;
@@ -472,11 +512,11 @@ function drawLive() {
   }
   box.dataset.sig = sig;
   box.innerHTML = `<section class="card live ${j.status}">
-    <div class="actions"><span class="status-pill ${j.status}">${j.kind === "draft" ? "Drafting" : "Making"} · ${j.status}</span>
-      ${running ? `<button class="btn ghost sm" data-cancel="${j.id}" type="button">Cancel</button>` : ""}
-      ${!running ? `<button class="btn ghost sm" id="live-close" type="button" aria-label="Dismiss">${I.x}</button>` : ""}</div>
+    <div class="lhead"><span class="status-pill ${j.status}">${j.kind === "draft" ? "Drafting" : "Making"} · ${j.status}</span>
+      <span class="actions push">${running ? `<button class="btn ghost sm" data-cancel="${j.id}" type="button">Cancel</button>` : ""}
+      ${!running ? `<button class="btn ghost sm" id="live-close" type="button" aria-label="Dismiss">${I.x}</button>` : ""}</span></div>
     <h3>${esc(r.title || j.label)}</h3>
-    ${running ? `<div class="stages">${STAGES.map(([k], n) => `<span class="${n < idx ? "done" : n === idx ? "now" : ""}" title="${k}"></span>`).join("")}</div>
+    ${running ? `<div class="timeline" data-n="${STAGES.length}">${STAGES.map(([k, label], n) => `<span class="${n < idx ? "done" : n === idx ? "now" : ""}" title="${label}">${label}</span>`).join("")}</div>
       <div class="stage-name"><b>${esc(name)}</b><span id="live-pct">${esc(progressText(j))}</span></div>
       <div class="pbar"><i id="live-bar" data-w="${j.pct}"></i></div>
       <p class="hint" id="live-msg">${esc(j.message || "")}</p>` : ""}
@@ -512,23 +552,25 @@ function drawEditor() {
   const j = currentCreateJob();
   if (!d) {
     if (j && (j.status === "running" || j.status === "queued")) { box.innerHTML = ""; return; }
-    box.innerHTML = `<section class="card"><h2>Preview</h2>
-      <div class="phone"><div class="bar"></div><div class="ph-hook">This animal has 3 hearts</div>${capSample(f.caption_style)}</div>
-      <p class="hint">Caption style <b>${esc(f.caption_style)}</b> · ${esc(f.aspect)} · ${esc(f.language)}</p>
-      <div class="list">
-        <div class="item"><span class="chip accent">1</span><div class="grow"><b>Draft script</b><small>The AI writes it, the Script Doctor scores and improves it, and you edit any line before rendering.</small></div></div>
-        <div class="item"><span class="chip accent">2</span><div class="grow"><b>Create video</b><small>Voice, footage, word-synced captions, music and render in one go — about a minute.</small></div></div>
-        <div class="item"><span class="chip accent">3</span><div class="grow"><b>Publish</b><small>Upload or schedule from the Library, or turn on upload here.</small></div></div>
-      </div></section>`;
+    const shape = { "9:16": "s916", "16:9": "s169", "1:1": "s11", "4:5": "s45" }[f.aspect] || "s916";
+    const res = { "9:16": "1080×1920", "16:9": "1920×1080", "1:1": "1080×1080", "4:5": "1080×1350" }[f.aspect] || "";
+    box.innerHTML = `<div class="monitor" aria-label="Preview">
+      <div class="mhead"><span>Program monitor</span><span class="rec">Preview</span></div>
+      <div class="frame ${shape}"><div class="bar"></div><div class="wm">${esc(S.info.channel || "")}</div><div class="ph-hook">This animal has 3 hearts</div>${capSample(f.caption_style, f.caption_position)}<span class="tc">00:00:02:14</span></div>
+      <div class="spec"><span><b>${esc(res)}</b></span><span>${esc(f.aspect)}</span><span>${esc(f.caption_style)}</span><span>${esc(f.language)}</span></div>
+    </div>
+    <section class="card"><ol class="steps">
+      <li><div><b>Draft the script</b><small>The AI writes it, the Script Doctor grades and tightens it, and you can change any line before rendering.</small></div></li>
+      <li><div><b>Create the video</b><small>Voice, footage, word-synced captions, sound and the render in one go, usually about a minute.</small></div></li>
+      <li><div><b>Publish</b><small>To YouTube, TikTok and Instagram from the Library, or switch on publishing here.</small></div></li>
+    </ol></section>`;
     return;
   }
   const multi = MULTI.has(d.style) || d.scenes.some(s => s.speaker === "B");
   const total = d.scenes.reduce((n, s) => n + words(s.narration), 0);
   const target = Math.round((f.duration || 40) * 2.6);
   box.innerHTML = `<section class="card">
-    <div class="actions"><h2>Script</h2><span class="chip">${esc(d.style)}</span><span class="chip">${esc(d.language)}</span>
-      <span class="wc" id="wc">${total} words · ~${Math.round(total / 2.6)}s</span>
-      <button class="btn ghost sm" id="discard" type="button">${I.trash}Discard</button></div>
+    ${sh("SC", "Script", `<span class="chip">${esc(d.style)}</span><span class="chip">${esc(d.language)}</span><span class="wc" id="wc">${total} words · ~${Math.round(total / 2.6)}s</span><button class="btn ghost sm" id="discard" type="button">${I.trash}Discard</button>`)}
     ${d.score != null ? `<div class="score"><div class="ring" data-p="${d.score}"><b>${d.score}</b></div><div class="grow"><b>Retention score</b>${rubricHtml(d.rubric)}${d.review && d.review.length ? `<ul>${d.review.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="hint">No issues found.</p>`}</div></div>` : ""}
     <div class="field"><label>Title</label><input type="text" data-k="title" value="${esc(d.title)}" maxlength="90"></div>
     <div class="field"><label>On-screen hook</label><input type="text" data-k="hook_text" value="${esc(d.hook_text)}" maxlength="48"></div>
@@ -537,7 +579,7 @@ function drawEditor() {
     <div class="field"><label>Scenes <span class="hint">· target about ${target} words</span></label>
     <div class="scenes">${d.scenes.map((s, n) => `
       <div class="scene ${s.speaker === "B" ? "b" : "a"}${multi ? " multi" : ""}">
-        <span class="num">${multi ? esc(s.speaker || "A") : n + 1}</span>
+        <span class="num">${multi ? esc(s.speaker || "A") : String(n + 1).padStart(2, "0")}</span>
         <div class="field">
           <textarea data-i="${n}" data-s="narration" aria-label="Scene ${n + 1} narration">${esc(s.narration)}</textarea>
           <div class="row">
@@ -554,7 +596,7 @@ function drawEditor() {
     <div class="actions"><button class="btn ghost sm" type="button" data-act="add">${I.plus}Add scene</button></div></div>
     <div class="field"><label>Description</label><textarea data-k="description">${esc(d.description)}</textarea></div>
     <div class="field"><label>Hashtags</label><input type="text" data-tags value="${esc((d.hashtags || []).join(" "))}"></div>
-    <div class="go-row"><span></span><button class="btn primary" id="render-btn" type="button">${I.play}Render this script</button></div>
+    <div class="go-row"><span></span><button class="btn rec" id="render-btn" type="button"><span class="dot"></span>Render this script</button></div>
   </section>`;
   paint(box);
   box.oninput = e => {
@@ -590,7 +632,7 @@ function drawEditor() {
 // ------------------------------------------------------------------ LIBRARY
 function viewLibrary() {
   $("#main").innerHTML = `
-  <div class="page-head"><div><h1>Library</h1><p>Everything you've made. Click a video to watch, edit, upload or delete it.</p></div></div>
+  ${head("library", "Library", "Everything you have made. Open a video to watch it, edit and re-render it, publish it or delete it.")}
   <div class="toolbar">${seg("lib", [["", "All"], ["rendered", "Ready"], ["scheduled", "Scheduled"], ["uploaded", "Uploaded"], ["queued", "Queued"], ["failed", "Failed"]], S.lib.status)}
     <input type="search" id="lib-q" placeholder="Search titles" value="${esc(S.lib.q)}" aria-label="Search"></div>
   <div class="lib" id="lib"></div>`;
@@ -604,6 +646,8 @@ function viewLibrary() {
   let t;
   $("#lib-q").oninput = e => { clearTimeout(t); t = setTimeout(() => { S.lib.q = e.target.value; drawLibrary(); }, 200); };
   drawLibrary();
+  const deep = +(location.hash.split("/")[1] || 0);  // #library/12 opens video 12: a link to one video
+  if (deep) openVideo(deep);
 }
 
 async function drawLibrary() {
@@ -612,17 +656,18 @@ async function drawLibrary() {
   let vs;
   try { vs = await get(`/api/videos?status=${encodeURIComponent(S.lib.status)}&q=${encodeURIComponent(S.lib.q)}`); } catch (e) { box.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   if (!vs.length) {
-    box.innerHTML = `<div class="empty"><b>${S.lib.status || S.lib.q ? "Nothing matches" : "No videos yet"}</b>${S.lib.status || S.lib.q ? "Try another filter." : `<a href="#create">Create your first one</a>.`}</div>`;
+    box.innerHTML = S.lib.status || S.lib.q ? empty("NO MATCH", "Nothing matches", "Try another filter or search.")
+      : empty("EMPTY REEL", "No videos yet", `<a href="#create">Make your first Short</a> and it shows up here.`);
     return;
   }
   box.innerHTML = vs.map(v => `
     <button class="vcard" type="button" data-open="${v.id}">
-      <div class="thumb">${v.has_cover ? `<img src="/files/${v.id}/cover.jpg" alt="" loading="lazy">` : `<div class="ph">${v.status === "failed" ? "failed" : "no preview"}</div>`}
+      <div class="thumb">${v.has_cover ? `<img src="/files/${v.id}/cover.jpg" alt="" loading="lazy">` : `<div class="ph">${v.status === "failed" ? "failed" : "no frame"}</div>`}
         <div class="tl"><span class="chip ${STATUS_CHIP[v.status] || ""}">${esc(v.status)}</span>${v.score != null ? `<span class="chip">${v.score}</span>` : ""}</div>
         ${v.duration ? `<span class="dur">${fmtSec(v.duration)}</span>` : ""}</div>
-      <div class="meta"><b>${esc(shortTitle(v.title) || "(untitled)")}</b>
-        <span class="sub">${esc(v.style || "")}${v.language ? ` · ${esc(v.language)}` : ""}${v.parent_id ? " · translation" : ""}${v.views != null ? ` · ${fmtNum(v.views)} views` : ""}</span>
-        <span class="sub">${ago(v.created)}</span></div>
+      <div class="meta"><span class="sub">#${String(v.id).padStart(3, "0")} · ${esc(v.style || "video")}${v.language ? ` · ${esc(v.language)}` : ""}</span>
+        <b>${esc(shortTitle(v.title) || "(untitled)")}</b>
+        <span class="sub">${ago(v.created)}${v.parent_id ? " · translation" : ""}${v.views != null ? ` · ${fmtNum(v.views)} views` : ""}</span></div>
     </button>`).join("");
 }
 
@@ -658,10 +703,11 @@ async function openVideo(id) {
   panel.innerHTML = `
     <button class="btn ghost close" type="button" data-close aria-label="Close">${I.x}</button>
     <div class="player">${v.video ? `<video src="/files/${id}/${esc(v.video)}" controls playsinline preload="metadata"${v.has_cover ? ` poster="/files/${id}/cover.jpg"` : ""}></video>`
-      : v.has_cover ? `<img src="/files/${id}/cover.jpg" alt="" class="thumb">` : `<div class="empty">The video file is gone${v.youtube_id ? " — it lives on YouTube now" : ""}.</div>`}
+      : v.has_cover ? `<img src="/files/${id}/cover.jpg" alt="">` : empty("NO FILE", "The video file is gone", v.youtube_id ? "It lives on YouTube now." : "")}
       <div class="actions">${v.video ? `<a class="btn sm" href="/files/${id}/${esc(v.video)}?download=1">${I.dl}MP4</a>` : ""}${v.has_srt ? `<a class="btn sm" href="/files/${id}/captions.srt?download=1">${I.dl}Captions</a>` : ""}</div>
     </div>
     <div>
+      <p class="eyebrow"><b>#${String(id).padStart(3, "0")}</b>Video</p>
       <div class="chips"><span class="chip ${STATUS_CHIP[v.status] || ""}">${esc(v.status)}</span>${v.style ? `<span class="chip">${esc(v.style)}</span>` : ""}${v.language ? `<span class="chip">${esc(v.language)}</span>` : ""}${v.parent_id ? `<span class="chip" data-open="${v.parent_id}">translation of #${v.parent_id}</span>` : ""}</div>
       <h2>${esc(v.title)}</h2>
       ${v.youtube_id ? `<p><a class="btn sm" href="https://youtube.com/shorts/${esc(v.youtube_id)}" target="_blank" rel="noopener">${I.yt}Open on YouTube</a>${v.publish_at ? ` <span class="muted">goes public ${esc(new Date(v.publish_at).toLocaleString())}</span>` : ""}</p>` : ""}
@@ -681,7 +727,7 @@ async function openVideo(id) {
         ${v.topic ? `<dt>Topic</dt><dd>${esc(v.topic)}</dd>` : ""}
         ${v.views != null ? `<dt>Views</dt><dd>${fmtNum(v.views)} · ${fmtNum(v.likes)} likes · ${fmtNum(v.comments)} comments</dd>` : ""}
         <dt>Made</dt><dd>${esc(new Date(v.created_at).toLocaleString())}</dd>
-        <dt>Folder</dt><dd class="mono">${esc(v.folder || "")}</dd>
+        <dt>Folder</dt><dd class="mono" title="${esc(v.folder || "")}">${esc((v.folder || "").split(/[\\/]/).slice(-2).join("/"))}</dd>
       </dl>
       ${v.description ? `<div class="desc">${esc(v.description)}</div>` : ""}
       ${v.tags && v.tags.length ? `<div class="chips">${v.tags.map(t => `<span class="chip">${esc(t)}</span>`).join("")}</div>` : ""}
@@ -718,13 +764,13 @@ function closeDrawer() {
 // ------------------------------------------------------------------ QUEUE
 const openLogs = new Set();
 function viewQueue() {
-  $("#main").innerHTML = `<div class="page-head"><div><h1>Queue</h1><p>Jobs run one at a time, in order. Each shows its live stage and log.</p></div></div><div class="jobs" id="jobs"></div>`;
+  $("#main").innerHTML = `${head("queue", "Queue", "Jobs run one at a time, in order. Each shows its live stage, time left and log.")}<div class="jobs" id="jobs"></div>`;
   drawJobs();
 }
 function drawJobs() {
   const box = $("#jobs");
   if (!box) return;
-  if (!S.jobs.length) { box.innerHTML = `<div class="empty"><b>Nothing running</b>Jobs you start from Create, Ideas or Clip show up here.</div>`; return; }
+  if (!S.jobs.length) { box.innerHTML = empty("STANDING BY", "Nothing running", "Jobs you start from Create, Ideas or Clip show up here."); return; }
   const scroll = {};
   $$(".log", box).forEach(l => { scroll[l.dataset.id] = l.scrollHeight - l.scrollTop - l.clientHeight < 30; });
   box.innerHTML = S.jobs.map(j => {
@@ -734,13 +780,15 @@ function drawJobs() {
     const took = j.started ? Math.round(((j.finished || Date.now() / 1000) - j.started)) : null;
     const stage = (STAGES.find(([k]) => k === j.stage) || [0, j.stage])[1];
     return `<div class="job ${j.status}">
-      <div class="job-top"><span class="kind">${KIND_ICON[j.kind] || I.film}</span>
+      <div class="job-top"><span class="jid">#${String(j.id).padStart(3, "0")}</span><span class="kind">${KIND_ICON[j.kind] || I.film}</span>
         <div class="t"><b>${esc(r.title || j.label)}</b><small><span class="status-pill ${j.status}">${j.status}</span>${running && stage ? ` · ${esc(stage)}` : ""}${running ? ` · ${esc(progressText(j))}` : ""}${running && j.message ? ` · ${esc(j.message)}` : ""}${took != null ? ` · ${fmtSec(took)}` : ""}</small></div>
-        ${j.status === "queued" || running ? `<button class="btn ghost sm" type="button" data-cancel="${j.id}">Cancel</button>` : ""}
+        <span class="acts">${j.status === "queued" || running ? `<button class="btn ghost sm" type="button" data-cancel="${j.id}">Cancel</button>` : ""}
         ${j.status === "done" && r.id ? `<button class="btn sm" type="button" data-open="${r.id}">${I.play}Watch</button>` : ""}
         ${j.status === "done" && j.kind === "draft" ? `<a class="btn sm" href="#create">${I.pen}Edit</a>` : ""}
-        <button class="btn ghost sm" type="button" data-log="${j.id}">${open ? "Hide log" : "Log"}</button>
+        <button class="btn ghost sm" type="button" data-log="${j.id}">${open ? "Hide log" : "Log"}</button></span>
       </div>
+      ${running ? (() => { const idx = STAGES.findIndex(([k]) => k === j.stage);
+        return `<div class="timeline">${STAGES.map(([k, label], n) => `<span class="${n < idx ? "done" : n === idx ? "now" : ""}">${label}</span>`).join("")}</div>`; })() : ""}
       ${j.status !== "cancelled" ? `<div class="pbar"><i data-w="${j.status === "failed" ? 100 : j.pct}"></i></div>` : ""}
       ${r.error ? `<div class="err">${esc(r.error)}</div>` : ""}
       ${r.clips ? `<div class="chips">${r.clips.map(c => `<span class="chip ${c.ok ? "ok" : "bad"}"${c.id ? ` data-open="${c.id}"` : ""}${c.reason ? ` title="${esc(c.reason)}"` : ""}>${esc(shortTitle(c.title) || "clip")}${c.score != null ? ` · <b>${c.score}</b>` : ""}</span>`).join("")}</div>` : ""}
@@ -760,33 +808,34 @@ function drawJobs() {
 // ------------------------------------------------------------------ IDEAS
 async function viewIdeas() {
   const main = $("#main");
+  if (!main.innerHTML.trim()) main.innerHTML = head("ideas", "Ideas", "") + empty("LOADING", "Reading the idea queue…", "");
   let data;
   try { data = await get("/api/ideas"); } catch (e) { main.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   if (S.view !== "ideas") return;
   const styles = [["", "Any format"], ...FORMATS.filter(([k]) => k !== "auto").map(([k, n]) => [k, n])];
   main.innerHTML = `
-  <div class="page-head"><div><h1>Ideas</h1><p>Plan a week of videos in one go. The autopilot and Create → Idea queue always use these first, oldest first.</p></div></div>
+  ${head("ideas", "Ideas", "Plan a week of videos in one go. The autopilot and Create's idea queue always use these first, oldest first.")}
   <div class="grid2">
-    <section class="card"><h2>Plan with AI</h2>
+    <section class="card">${sh("01", "Plan with AI", "uses real YouTube searches")}
       <div class="field"><label>Niche (optional)</label><input type="text" id="plan-niche" placeholder="e.g. space and the universe — blank uses your NICHES"></div>
       <div class="field"><label>How many</label><div class="range-row"><input type="range" id="plan-n" min="3" max="30" value="10"><output id="plan-out">10</output></div></div>
       <div class="actions end"><button class="btn primary" id="plan-go" type="button">${I.spark}Plan ideas</button></div>
     </section>
-    <section class="card"><h2>Add your own</h2>
+    <section class="card">${sh("02", "Add your own")}
       <div class="field"><label>Idea</label><input type="text" id="idea-s" placeholder="e.g. The man who survived two atomic bombs"></div>
       <div class="field"><label>Format</label><select id="idea-f">${styles.map(([k, n]) => `<option value="${k}">${n}</option>`).join("")}</select></div>
       <div class="actions end"><button class="btn" id="idea-add" type="button">${I.plus}Add to queue</button></div>
     </section>
   </div>
-  <section class="card"><h2>Queue · ${data.pending.length}</h2>
+  <section class="card">${sh("03", "In the queue", `${data.pending.length} waiting`)}
     ${data.pending.length ? `<div class="list">${data.pending.map(i => `
-      <div class="item"><span class="chip ${i.style ? "accent" : ""}">${esc(i.style || "auto")}</span>
-        <div class="grow"><b>${esc(i.subject)}</b>${i.notes ? `<small>${esc(i.notes)}</small>` : ""}</div>
+      <div class="item"><span class="ix">#${String(i.id).padStart(3, "0")}</span>
+        <div class="grow"><b>${esc(i.subject)}</b>${i.notes ? `<small>${esc(i.notes)}</small>` : ""}</div><span class="chip ${i.style ? "accent" : ""}">${esc(i.style || "auto")}</span>
         <button class="btn sm" type="button" data-make="${i.id}">${I.play}Make now</button>
         <button class="btn ghost sm" type="button" data-del="${i.id}" aria-label="Remove">${I.trash}</button></div>`).join("")}</div>`
-      : `<div class="empty"><b>The queue is empty</b>Plan some ideas with AI, or add your own.</div>`}
+      : empty("NOTHING PLANNED", "The queue is empty", "Plan some ideas with AI, or add your own.")}
   </section>
-  ${data.used.length ? `<section class="card"><h2>Recently made</h2><div class="list">${data.used.map(i => `
+  ${data.used.length ? `<section class="card">${sh("04", "Recently made")}<div class="list">${data.used.map(i => `
       <div class="item"><span class="chip">${esc(i.style || "auto")}</span><div class="grow"><b>${esc(i.subject)}</b><small>${ago(i.used_at)}</small></div>
       ${i.video_id ? `<button class="btn ghost sm" type="button" data-open="${i.video_id}">${I.play}Watch</button>` : ""}</div>`).join("")}</div></section>` : ""}`;
   $("#plan-n").oninput = e => { $("#plan-out").textContent = e.target.value; };
@@ -818,9 +867,9 @@ function viewClip() {
   const c = Object.assign({ source: "", count: 3, crop: "center", upload: false, brief: "", jump_cuts: true, zoom: true },
     store.get("clip", {}));
   $("#main").innerHTML = `
-  <div class="page-head"><div><h1>Clip a long video</h1><p>Turn a podcast, interview, talk or stream into Shorts of its best moments.</p></div></div>
+  ${head("clip", "Clip a long video", "Turn a podcast, interview, talk or stream into Shorts of its best moments, edited and captioned.")}
   <div class="create">
-    <section class="card"><h2>Source</h2>
+    <section class="card">${sh("01", "Source and edit")}
       <div class="field"><label>Video file or URL</label><input type="text" id="c-src" value="${esc(c.source)}" placeholder="/Users/me/Videos/podcast.mp4  or  https://…"><p class="hint">Local files work out of the box. URLs need <span class="mono">pip install yt-dlp</span>. Only clip videos you own or may reuse.</p></div>
       <div class="grid2">
         <div class="field"><label>Clips</label><div class="range-row"><input type="range" id="c-n" min="1" max="10" value="${c.count}"><output id="c-out">${c.count}</output></div></div>
@@ -832,13 +881,13 @@ function viewClip() {
         <label class="switch"><input type="checkbox" id="c-zoom"${c.zoom ? " checked" : ""}><span>Punch-in zoom<small>Changes framing between sentences</small></span></label>
       </div>
       <div class="field"><label class="switch"><input type="checkbox" id="c-up"${c.upload ? " checked" : ""}${S.info.upload ? "" : " disabled"}><span>Upload the clips when done</span></label></div>
-      <div class="actions end"><button class="btn primary" id="c-go" type="button">${I.scissors}Find the best moments</button></div>
+      <div class="go-row"><span></span><button class="btn rec" id="c-go" type="button"><span class="dot"></span>Find the best moments</button></div>
     </section>
-    <section class="card"><h2>How it works</h2><div class="list">
-      <div class="item"><span class="chip accent">1</span><div class="grow"><b>Transcribe</b><small>Word-level timing with faster-whisper (free, local) or OpenAI.</small></div></div>
-      <div class="item"><span class="chip accent">2</span><div class="grow"><b>AI picks the moments</b><small>Self-contained, 20–58 s, a hook in the first line and a payoff at the end. Each gets a title and a virality score with the reason.</small></div></div>
-      <div class="item"><span class="chip accent">3</span><div class="grow"><b>Edited, vertical, captioned</b><small>Pauses and ums cut, punch-in zoom, face-following or blurred-fit 9:16, word-by-word captions, loudness to −14 LUFS.</small></div></div>
-    </div></section>
+    <section class="card">${sh("02", "How it works")}<ol class="steps">
+      <li><div><b>Transcribe</b><small>Word-level timing with faster-whisper (free, on this computer) or OpenAI.</small></div></li>
+      <li><div><b>The AI picks the moments</b><small>Self-contained, 20–58 s, a hook in the first line and a payoff at the end. Each gets a title and a virality score with the reason.</small></div></li>
+      <li><div><b>Edited, vertical, captioned</b><small>Pauses and ums cut, punch-in zoom, face-following or blurred-fit 9:16, word-by-word captions, loudness at −14 LUFS.</small></div></li>
+    </ol></section>
   </div>`;
   const save = () => store.set("clip", c);
   $("#c-n").oninput = e => { c.count = +e.target.value; $("#c-out").textContent = c.count; save(); };
@@ -862,7 +911,7 @@ function viewClip() {
 function calibrationCard(c) {
   const rho = c.score_vs_views;
   const tone = rho == null ? "" : rho >= 0.5 ? "ok" : rho >= 0.25 ? "accent" : "bad";
-  return `<section class="card"><h2>Do the predictions hold up?</h2>
+  return `<section class="card">${sh("02", "Do the predictions hold up?")}
     <p>${rho != null ? `<span class="chip ${tone}">ρ = ${rho.toFixed(2)}</span> ` : ""}Retention score vs real views: ${esc(c.verdict)}.
       <span class="muted">Spearman rank correlation over ${c.scored} scored video(s) that have been public for 2+ days.</span></p>
     ${c.hours.length ? `<p class="muted">Best publish hours (your time): ${c.hours.map(h => `<b>${String(h.hour).padStart(2, "0")}:00</b> ${fmtNum(h.median_views)}`).join(" · ")}</p>` : ""}
@@ -871,6 +920,7 @@ function calibrationCard(c) {
 
 async function viewChannel() {
   const main = $("#main");
+  if (!main.innerHTML.trim()) main.innerHTML = head("channel", "Channel", "") + empty("LOADING", "Reading your channel…", "");
   let ch;
   try { [ch, S.info] = await Promise.all([get("/api/channel"), get("/api/info")]); } catch (e) { main.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   if (S.view !== "channel") return;
@@ -878,8 +928,7 @@ async function viewChannel() {
   const live = (cnt.uploaded || 0) + (cnt.scheduled || 0);
   const top = Math.max(1, ...ch.by_style.map(s => s.avg_views));
   main.innerHTML = `
-  <div class="page-head"><div><h1>Channel</h1><p>How your uploads are doing${ch.synced ? ` · stats from ${ago(ch.synced)}` : ""}.</p></div>
-    <button class="btn" id="sync" type="button">${I.refresh}Refresh stats</button></div>
+  ${head("channel", "Channel", `How your uploads are doing${ch.synced ? `, with stats from ${ago(ch.synced)}` : ""}.`, `<button class="btn" id="sync" type="button">${I.refresh}Refresh stats</button>`)}
   ${i.learn_from_stats ? "" : `<div class="banner">${I.spark}<p>Set <span class="mono">LEARN_FROM_STATS=true</span> in .env and new scripts will learn from what performs best here. Add <span class="mono">YOUTUBE_API_KEY</span> (or run <span class="mono">purffle-shorts auth</span> again) so stats can be read.</p></div>`}
   <div class="kpis">
     <div class="kpi"><small>Videos made</small><b>${fmtNum(i.total)}</b></div>
@@ -889,12 +938,12 @@ async function viewChannel() {
   </div>
   ${ch.calibration && ch.calibration.videos ? calibrationCard(ch.calibration) : ""}
   ${ch.videos.length ? `<div class="grid2">
-    <section class="card"><h2>Average views by format</h2>${ch.by_style.map(s => `<div class="hbar"><span>${esc(s.style)}</span><span class="track"><i data-w="${100 * s.avg_views / top}"></i></span><span class="num">${fmtNum(s.avg_views)}</span></div>`).join("")}</section>
-    <section class="card"><h2>Best performer</h2>${(() => { const v = ch.videos[0]; return `<h3>${esc(v.title)}</h3><p class="muted">${fmtNum(v.views)} views · ${fmtNum(v.likes)} likes · ${esc(v.style || "")}</p><button class="btn sm" type="button" data-open="${v.id}">${I.play}Open</button>`; })()}</section>
+    <section class="card">${sh("03", "Average views by format")}${ch.by_style.map(s => `<div class="hbar"><span>${esc(s.style)}</span><span class="track"><i data-w="${100 * s.avg_views / top}"></i></span><span class="num">${fmtNum(s.avg_views)}</span></div>`).join("")}</section>
+    <section class="card">${sh("04", "Best performer")}${(() => { const v = ch.videos[0]; return `<h3>${esc(v.title)}</h3><p class="muted">${fmtNum(v.views)} views · ${fmtNum(v.likes)} likes · ${esc(v.style || "")}</p><button class="btn sm" type="button" data-open="${v.id}">${I.play}Open</button>`; })()}</section>
   </div>
-  <section class="card"><h2>Videos</h2><table><thead><tr><th>Title</th><th>Format</th><th class="num">Score</th><th class="num">Views</th><th class="num">Likes</th></tr></thead>
+  <section class="card">${sh("05", "Videos")}<table><thead><tr><th>Title</th><th>Format</th><th class="num">Score</th><th class="num">Views</th><th class="num">Likes</th></tr></thead>
     <tbody>${ch.videos.map(v => `<tr><td><a href="#library" data-open="${v.id}">${esc(v.title)}</a></td><td>${esc(v.style || "")}</td><td class="num">${v.score ?? "–"}</td><td class="num">${fmtNum(v.views)}</td><td class="num">${fmtNum(v.likes)}</td></tr>`).join("")}</tbody></table></section>`
-    : `<section class="card"><div class="empty"><b>No stats yet</b>Upload some videos, then refresh. View counts need a day or two to mean something.</div></section>`}`;
+    : empty("NO DATA YET", "No stats yet", "Publish some videos, then refresh. View counts need a day or two to mean something.")}`;
   paint(main);
   $("#sync").onclick = async () => { try { await post("/api/stats"); toast("Refreshing stats…", "info"); tick(); } catch (e) { toast(esc(e.message), "bad"); } };
 }
@@ -902,21 +951,21 @@ async function viewChannel() {
 // ------------------------------------------------------------------ SYSTEM
 async function viewSystem() {
   const main = $("#main");
-  main.innerHTML = `<div class="page-head"><div><h1>System</h1><p>Setup checks, settings and ways to drive PurffleShorts from other tools.</p></div></div><div id="sys"><div class="empty">Checking your setup…</div></div>`;
+  main.innerHTML = `${head("system", "System", "Setup checks, settings and ways to drive PurffleShorts from other tools.")}<div id="sys">${empty("RUNNING CHECKS", "Checking your setup…", "")}</div>`;
   let checks;
   try { checks = await get("/api/doctor"); } catch (e) { $("#sys").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   if (S.view !== "system") return;
   const bad = checks.filter(c => c.ok === false).length;
   const mcp = JSON.stringify({ mcpServers: { "purffle-shorts": { command: "purffle-shorts", args: ["mcp"], env: { PURFFLE_HOME: "/path/to/your/purffle/folder" } } } }, null, 2);
   $("#sys").innerHTML = `
-  <section class="card"><h2>Setup · ${bad ? `<span class="chip bad">${bad} to fix</span>` : `<span class="chip ok">all good</span>`}</h2>
-    <div class="checks">${checks.map(c => `<div class="check"><span class="m ${c.ok === true ? "ok" : c.ok === false ? "bad" : "info"}">${c.ok === true ? "✔" : c.ok === false ? "✘" : "•"}</span><span>${esc(c.label)}</span><span>${esc(c.detail)}</span></div>`).join("")}</div>
+  <section class="card">${sh("01", "Setup", bad ? `<span class="chip bad">${bad} to fix</span>` : `<span class="chip ok">all good</span>`)}
+    <div class="checks">${checks.map(c => `<div class="check"><span class="m ${c.ok === true ? "ok" : c.ok === false ? "bad" : "info"}">${c.ok === true ? "✓" : c.ok === false ? "✕" : "·"}</span><span>${esc(c.label)}</span><span>${esc(c.detail)}</span></div>`).join("")}</div>
     <p class="hint">Settings live in <span class="mono">.env</span> next to where you started the Studio. Restart it after editing.</p></section>
   <div class="grid2">
-    <section class="card"><h2>Use from Claude & other AI apps (MCP)</h2>
+    <section class="card">${sh("02", "Use it from Claude and other AI apps")}
       <p class="muted">Add this to Claude Desktop, Claude Code, Cursor or any MCP client, then ask: “make a 30-second Short about why cats purr”.</p>
       <pre class="code" id="mcp">${esc(mcp)}</pre><div class="actions end"><button class="btn sm" id="copy" type="button">${I.copy}Copy</button></div></section>
-    <section class="card"><h2>Command line</h2><pre class="code">purffle-shorts run                 # autopilot
+    <section class="card">${sh("03", "Command line")}<pre class="code">purffle-shorts run                 # autopilot
 purffle-shorts make --style chat   # one video
 purffle-shorts make --url https://…
 purffle-shorts clip talk.mp4 --count 3
