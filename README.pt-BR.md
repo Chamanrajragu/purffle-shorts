@@ -4,7 +4,7 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [Español](README.es.md) · **Português** · [हिन्दी](README.hi.md) · [日本語](README.ja.md)
 
-**Um gerador de vídeos open source com IA para YouTube Shorts, TikTok e Instagram Reels. Passe para ele um tema, uma página da web, um post do Reddit ou um podcast longo, e ele cria vídeos verticais prontos (roteiro, narração, imagens, legendas) e depois faz o upload ou agenda a publicação no YouTube.**
+**Um gerador de vídeos open source com IA para YouTube Shorts, TikTok e Instagram Reels. Passe para ele um tema, uma página da web, um post do Reddit ou um podcast longo, e ele cria vídeos verticais prontos (roteiro, narração, imagens, legendas) e depois faz o upload ou agenda a publicação no YouTube, no TikTok e no Instagram.**
 
 [![CI](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml/badge.svg)](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb)
@@ -48,6 +48,7 @@ Ele também é um pequeno estúdio: edite qualquer linha do roteiro antes de ren
 - **Edição feita para reter:** as palavras-chave que a IA marca e todos os números aparecem em outra cor, um emoji por cena aparece acima das legendas, e há efeitos sonoros gerados por código (um whoosh a cada troca de cena, um pop a cada mensagem e um impacto sob o gancho) mixados 11 dB abaixo da voz.
 - **Capa:** o quadro mais nítido e bem exposto dos primeiros segundos, nunca um quadro no meio de uma transição.
 - Saída em **9:16, 16:9, 1:1 ou 4:5**, renderizada com ffmpeg. Não precisa de GPU.
+- **Publica também no TikTok e no Instagram Reels** (`PUBLISH_TO=youtube,tiktok,instagram`), com um texto adaptado para cada rede.
 - **Faz upload no YouTube** ou agenda cada vídeo no seu próximo horário livre, com a declaração de conteúdo gerado por IA já marcada.
 - **Um vídeo, vários idiomas:** `--also-lang es,hi` cria cópias traduzidas que reaproveitam as mesmas imagens.
 - **App web Studio** no seu computador: crie rascunhos, edite, renderize e navegue pela biblioteca. O progresso chega na hora, com porcentagem e tempo restante calculados a partir do seu próprio computador, e o botão **Cancel** interrompe um trabalho em andamento. Quando o Studio roda num servidor, `STUDIO_PASSWORD` o protege com senha.
@@ -121,7 +122,7 @@ Depois é só pedir, por exemplo: "crie uma história em mensagens de texto de 3
 
 **Dá para testar sem chave de API?** Sim: o comando `demo` renderiza um vídeo de exemplo sem nenhuma chave.
 
-**Ele posta no TikTok ou no Instagram?** Ele só faz upload no YouTube. Cada vídeo é um MP4 padrão com imagem de capa e legendas, então você pode postar esse mesmo arquivo no TikTok e no Reels por conta própria (depois do upload no YouTube o MP4 é apagado, a menos que você defina `KEEP_VIDEOS=true`).
+**Ele posta no TikTok ou no Instagram?** Sim: `PUBLISH_TO=youtube,tiktok,instagram`. O TikTok passa pelo [Upload-Post](https://www.upload-post.com) (`UPLOAD_POST_API_KEY`, `UPLOAD_POST_USER`; o TikTok exige um plano pago), porque a API do próprio TikTok só deixa apps auditados publicarem vídeos públicos. O Instagram pode usar a API oficial gratuita (`INSTAGRAM_USER_ID`, `INSTAGRAM_ACCESS_TOKEN`) ou o Upload-Post. Cada rede recebe o próprio texto e o mesmo horário de publicação, e `upload --id N` reenvia só o que falhou. A integração segue a API publicada de cada serviço, mas ainda não foi testada com contas reais.
 
 **Preciso de GPU?** Não. A renderização usa o ffmpeg na CPU. Se você tiver uma GPU NVIDIA, a transcrição do `clip` aproveita a placa.
 

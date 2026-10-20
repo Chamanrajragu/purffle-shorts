@@ -4,7 +4,7 @@
 
 [English](README.md) · **简体中文** · [Español](README.es.md) · [Português](README.pt-BR.md) · [हिन्दी](README.hi.md) · [日本語](README.ja.md)
 
-**一款开源的 AI 视频生成器，适用于 YouTube Shorts、TikTok 和 Instagram Reels。给它一个主题、一个网页、一篇 Reddit 帖子或一期长播客，它就能生成完整的竖屏成片（脚本、配音、画面素材、字幕），然后上传到 YouTube 或定时发布。**
+**一款开源的 AI 视频生成器，适用于 YouTube Shorts、TikTok 和 Instagram Reels。给它一个主题、一个网页、一篇 Reddit 帖子或一期长播客，它就能生成完整的竖屏成片（脚本、配音、画面素材、字幕），然后上传到 YouTube、TikTok 和 Instagram，或定时发布。**
 
 [![CI](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml/badge.svg)](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb)
@@ -48,6 +48,7 @@ PurffleShorts 是一款面向无人出镜频道的 YouTube Shorts 自动化工�
 - **为留存而做的剪辑**：AI 标出的关键词和所有数字会用另一种颜色显示，每个场景有一个表情符号在字幕上方弹出。音效由代码生成（每次换场景有嗖的一声，每条消息有一声轻响，开头钩子下有一声低沉的冲击），混音时比人声低 11 dB。
 - **封面图**：选开头几秒里最清晰、曝光最好的一帧，绝不会选到转场中间的画面。
 - **9:16、16:9、1:1 或 4:5** 画幅输出，使用 ffmpeg 渲染，无需 GPU。
+- **同时发布到 TikTok 和 Instagram Reels**（`PUBLISH_TO=youtube,tiktok,instagram`），每个平台使用单独调整的文案。
 - **上传到 YouTube**，或把每个视频排进你的下一个空闲时段定时发布，并设置好 AI 内容声明。
 - **一个视频，多种语言**：`--also-lang es,hi` 会生成复用同一套画面素材的翻译版本。
 - **Studio 网页应用**，运行在你的电脑上：起草、编辑、渲染、浏览视频库。进度即时推送，显示百分比和剩余时间（根据你自己电脑的实际耗时估算），**Cancel** 按钮可以停止正在运行的任务。在服务器上运行时，可以用 `STUDIO_PASSWORD` 加上密码保护。
@@ -121,7 +122,7 @@ purffle-shorts clip episode.mp4 --prompt "最搞笑的片段"   # 只挑符合�
 
 **没有 API 密钥能试用吗？** 可以：`demo` 命令无需任何密钥即可渲染一个示例视频。
 
-**能发布到 TikTok 或 Instagram 吗？** 它只支持上传到 YouTube。每个视频都是标准 MP4，附带封面图和字幕，所以你可以自己把同一个文件发布到 TikTok 和 Reels（上传到 YouTube 后 MP4 会被删除，除非设置 `KEEP_VIDEOS=true`）。
+**能发布到 TikTok 或 Instagram 吗？** 可以：`PUBLISH_TO=youtube,tiktok,instagram`。TikTok 通过 [Upload-Post](https://www.upload-post.com) 发布（`UPLOAD_POST_API_KEY`、`UPLOAD_POST_USER`；TikTok 需要付费套餐），因为 TikTok 自己的 API 只允许通过审核的应用发布公开视频。Instagram 可以用免费的官方 API（`INSTAGRAM_USER_ID`、`INSTAGRAM_ACCESS_TOKEN`）或 Upload-Post。每个平台都有自己的文案，并在同一时间发布；`upload --id N` 只会重发失败的部分。这项集成按照各服务公开的 API 实现，但还没有在真实账号上测试过。
 
 **需要 GPU 吗？** 不需要。渲染由 ffmpeg 在 CPU 上完成。如果有 NVIDIA GPU，`clip` 的转录会用上它。
 

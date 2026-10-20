@@ -113,12 +113,28 @@ def checks(s: Settings) -> list[dict]:
     queued = len(History(s.data_path / "history.db").ideas("pending"))
     add(None, "Idea queue", f"{queued} planned idea(s)" if queued else "empty (fill it with `plan`)")
     if s.upload:
-        cs = Path(s.client_secrets).exists()
-        tok = Path(s.token_file).exists() or Path("token.pickle").exists()
-        add(cs or tok, "YouTube OAuth client", s.client_secrets if cs else "credentials.json missing")
-        add(tok if cs else None, "YouTube token", "found" if tok else "run: purffle-shorts auth")
-        add(None, "Publishing", f"{s.privacy}" + (f", scheduled at {', '.join(s.publish_times)}" if s.publish_times
-                                                 else "") + f", max {s.daily_upload_limit}/day")
+        if "youtube" in s.publish_to:
+            cs = Path(s.client_secrets).exists()
+            tok = Path(s.token_file).exists() or Path("token.pickle").exists()
+            add(cs or tok, "YouTube OAuth client", s.client_secrets if cs else "credentials.json missing")
+            add(tok if cs else None, "YouTube token", "found" if tok else "run: purffle-shorts auth")
+        from .crosspost import NAMES, routes
+        others = [p for p in s.publish_to if p != "youtube"]
+        direct, relay = routes(s, others)
+        if direct:
+            add(True, "Instagram", f"official Instagram API (account {s.instagram_user_id}, "
+                f"Graph {s.instagram_api_version}); posts right away, it can't schedule")
+        if relay:
+            ready = bool(s.upload_post_api_key and s.upload_post_user)
+            add(ready, ", ".join(NAMES.get(p, p) for p in relay),
+                f"via Upload-Post, profile {s.upload_post_user}" + (" (TikTok needs a paid Upload-Post plan)"
+                                                                   if "tiktok" in relay else "") if ready else
+                "set UPLOAD_POST_API_KEY and UPLOAD_POST_USER (upload-post.com), or remove them from PUBLISH_TO"
+                + ("; Instagram can also use INSTAGRAM_USER_ID + INSTAGRAM_ACCESS_TOKEN" if "instagram" in relay
+                   else ""))
+        add(None, "Publishing", f"to {', '.join(s.publish_to)}; {s.privacy}"
+            + (f", scheduled at {', '.join(s.publish_times)}" if s.publish_times else "")
+            + f", max {s.daily_upload_limit}/day")
     else:
         add(None, "Upload", "disabled (UPLOAD=false)")
     return out

@@ -4,7 +4,7 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · **Español** · [Português](README.pt-BR.md) · [हिन्दी](README.hi.md) · [日本語](README.ja.md)
 
-**Un generador de video con IA de código abierto para YouTube Shorts, TikTok e Instagram Reels. Dale un tema, una página web, un post de Reddit o un podcast largo y creará videos verticales terminados (guion, locución, material visual, subtítulos) que luego subirá o programará en YouTube.**
+**Un generador de video con IA de código abierto para YouTube Shorts, TikTok e Instagram Reels. Dale un tema, una página web, un post de Reddit o un podcast largo y creará videos verticales terminados (guion, locución, material visual, subtítulos) que luego subirá o programará en YouTube, TikTok e Instagram.**
 
 [![CI](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml/badge.svg)](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb)
@@ -48,6 +48,7 @@ También es un pequeño estudio: puedes editar cualquier línea del guion antes 
 - **Edición pensada para la retención:** las palabras clave que marca la IA y todos los números aparecen en otro color, un emoji por escena aparece sobre los subtítulos, y hay efectos de sonido creados por código (un whoosh en cada cambio de escena, un pop con cada mensaje y un golpe bajo el gancho) mezclados 11 dB por debajo de la voz.
 - **Portada:** el fotograma más nítido y mejor expuesto de los primeros segundos, nunca uno a mitad de una transición.
 - Salida en **9:16, 16:9, 1:1 o 4:5**, renderizada con ffmpeg. No necesitas GPU.
+- **Publica también en TikTok e Instagram Reels** (`PUBLISH_TO=youtube,tiktok,instagram`), con un texto adaptado a cada red.
 - **Sube a YouTube** o programa cada video en tu siguiente franja horaria libre, con la declaración de contenido generado con IA ya activada.
 - **Un video, muchos idiomas:** `--also-lang es,hi` crea copias traducidas que reutilizan el mismo material visual.
 - **App web Studio** en tu equipo: redacta, edita, renderiza y explora la biblioteca. El progreso llega al instante, con el porcentaje y el tiempo restante calculados a partir de tu propio equipo, y el botón **Cancel** detiene un trabajo en curso. Si lo ejecutas en un servidor, `STUDIO_PASSWORD` lo protege con contraseña.
@@ -121,7 +122,7 @@ Luego pide, por ejemplo: "crea una historia de texto de 30 segundos sobre un alt
 
 **¿Puedo probarlo sin una clave de API?** Sí: el comando `demo` renderiza un video de ejemplo sin claves.
 
-**¿Puede publicar en TikTok o Instagram?** Solo sube a YouTube. Cada video es un MP4 estándar con imagen de portada y subtítulos, así que puedes publicar ese mismo archivo en TikTok y Reels por tu cuenta (tras subirlo a YouTube el MP4 se borra, salvo que pongas `KEEP_VIDEOS=true`).
+**¿Puede publicar en TikTok o Instagram?** Sí: `PUBLISH_TO=youtube,tiktok,instagram`. TikTok se publica a través de [Upload-Post](https://www.upload-post.com) (`UPLOAD_POST_API_KEY`, `UPLOAD_POST_USER`; TikTok requiere un plan de pago), porque la API propia de TikTok solo deja publicar videos públicos a apps auditadas. Instagram puede usar su API oficial gratuita (`INSTAGRAM_USER_ID`, `INSTAGRAM_ACCESS_TOKEN`) o Upload-Post. Cada red recibe su propio texto y la misma franja horaria, y `upload --id N` reintenta solo lo que falló. Esta integración sigue la API publicada de cada servicio, pero aún no se ha probado con cuentas reales.
 
 **¿Necesito una GPU?** No. El renderizado usa ffmpeg en la CPU. Si tienes una GPU NVIDIA, la transcripción de `clip` la aprovecha.
 

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import analytics, ffmpeg, notify, seo, sfx, topics, tts, youtube
+from . import analytics, crosspost, ffmpeg, notify, seo, sfx, topics, tts, youtube
 from .config import Settings
 from .history import History, now_iso
 from .llm import LLM, LLMConfigError
@@ -108,6 +108,7 @@ class Result:
     language: str = ""
     variants: list[Result] = field(default_factory=list)
     reason: str = ""          # clips: why the AI picked this moment
+    posts: dict = field(default_factory=dict)  # platform -> {status, url, id, error} beyond YouTube
 
 
 def quota_day_start() -> str:
@@ -123,6 +124,17 @@ def seconds_until_quota_reset() -> float:
     pt = datetime.now(ZoneInfo("America/Los_Angeles"))
     nxt = (pt.replace(hour=0, minute=0, second=0, microsecond=0)).timestamp() + 86400
     return max(60.0, nxt - pt.timestamp() + 120)
+
+
+def _future(iso: str | None) -> datetime | None:
+    """A stored publish time that is still ahead, so a retry posts the other networks at the same slot."""
+    if not iso:
+        return None
+    try:
+        t = datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return t if t > datetime.now(timezone.utc) else None
 
 
 def final_title(script: Script, settings: Settings | None = None, text: str | None = None) -> str:
@@ -452,8 +464,8 @@ class Studio:
             if (info["width"], info["height"]) != s.resolution or abs(info["duration"] - total) > 0.5:
                 raise RuntimeError(f"Render check failed: got {info['width']}x{info['height']} "
                                    f"{info['duration']:.2f}s, expected {s.width}x{s.height} {total:.2f}s")
-            pick_cover(video, folder / "cover.jpg", work, total=total, avoid=[st.start for st in shots[1:]],
-                       until=card_until or plan.hook_until or min(2.8, total * 0.4))
+            cover_at = pick_cover(video, folder / "cover.jpg", work, total=total, avoid=[st.start for st in shots[1:]],
+                                  until=card_until or plan.hook_until or min(2.8, total * 0.4))
             (folder / "captions.srt").write_text(srt(chunks), encoding="utf-8")
 
             title = final_title(script, s)
@@ -478,7 +490,7 @@ class Studio:
                 "topic": script.topic, "source": pick.source, "style": script.style,
                 "duration": round(info["duration"], 2), "resolution": f"{s.width}x{s.height}",
                 "llm": writer, "score": script.score, "rubric": script.rubric, "review": script.review,
-                "search_keywords": pick.keywords, "localizations": localizations,
+                "search_keywords": pick.keywords, "localizations": localizations, "cover_at": round(cover_at, 2),
                 "cast": script.cast,
                 "voice": f"{speech.engine}:{speech.voice}", "timing": speech.timing,
                 "visuals": [{"source": m.source, "id": m.id, "kind": m.kind, "query": m.query}
@@ -561,10 +573,23 @@ class Studio:
         return self.s.daily_upload_limit - self.history.uploads_since(day)
 
     def upload_record(self, rid: int, result: Result | None = None) -> str:
+        """Publish a rendered video to every PUBLISH_TO destination it hasn't reached yet: YouTube (uploaded,
+        or scheduled into the next free slot) and the other networks (see crosspost). Calling it again only
+        retries what didn't go out. Returns the video's new status."""
         rec = self.history.get(rid)
         if not rec or not rec.get("video_path") or not Path(rec["video_path"]).exists():
             log.error("Video #%s has no file to upload", rid)
             return "missing"
+        to = list(dict.fromkeys(self.s.publish_to or ["youtube"]))
+        folder = Path(rec["folder"])
+        meta_file = folder / "metadata.json"
+        meta = json.loads(meta_file.read_text()) if meta_file.exists() else {}
+        posted = dict(meta.get("published") or {})
+        on_youtube = "youtube" in to and not rec.get("youtube_id")
+        others = [p for p in to if p != "youtube" and (posted.get(p) or {}).get("status") not in crosspost.DONE]
+        if not on_youtube and not others:
+            log.info("Video #%d is already on %s", rid, ", ".join(to))
+            return rec["status"]
         if self.quota_left() <= 0:
             log.warning("Daily upload limit (%d) reached — video #%d queued for tomorrow", self.s.daily_upload_limit, rid)
             self.history.update_video(rid, status="queued")
@@ -572,9 +597,48 @@ class Studio:
                 result.status = "queued"
             notify.send(self.s, "queued", title=rec["title"], detail="daily upload limit reached")
             return "queued"
-        folder = Path(rec["folder"])
-        meta = json.loads((folder / "metadata.json").read_text()) if (folder / "metadata.json").exists() else {}
-        publish = youtube.next_publish_slot(self.s, self.history.scheduled_times())
+        status = rec["status"]
+        when = _future(rec.get("publish_at"))
+        if on_youtube:
+            when = youtube.next_publish_slot(self.s, self.history.scheduled_times())
+            status = self._to_youtube(rid, rec, meta, folder, when, result)
+            if status not in ("uploaded", "scheduled"):
+                when = None
+        elif "youtube" not in to and when is None and not posted:
+            when = youtube.next_publish_slot(self.s, self.history.scheduled_times())  # the slot is for the networks
+        if others:
+            results = crosspost.publish(self.s, Path(rec["video_path"]), meta, others, when)
+            posted.update({p: r.to_dict() for p, r in results.items()})
+            meta["published"] = posted
+            meta_file.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
+            out = [r for r in results.values() if r.status in crosspost.DONE]
+            failed = [r for r in results.values() if r.status not in crosspost.DONE]
+            for r in out:
+                notify.send(self.s, "uploaded", title=f"{rec['title']} on {r.platform}", url=r.url, detail=r.status)
+            for r in failed:
+                notify.send(self.s, "failed", title=f"{rec['title']} on {r.platform}", detail=r.error)
+            if "youtube" not in to:  # without YouTube, the video's status is where the networks stand
+                ok = bool(out) or any((posted.get(p) or {}).get("status") in crosspost.DONE for p in to)
+                status = ("scheduled" if when and out and all(r.status == "scheduled" for r in out) else
+                          "uploaded") if ok else "failed"
+                self.history.update_video(
+                    rid, status=status, uploaded_at=now_iso() if ok else rec.get("uploaded_at"),
+                    publish_at=youtube.to_rfc3339(when) if when and ok else rec.get("publish_at"),
+                    error=None if not failed else "; ".join(f"{r.platform}: {r.error}" for r in failed)[:500])
+            if result:
+                result.posts = {p: posted[p] for p in others}
+                if "youtube" not in to:
+                    result.status = status
+        # The MP4 can go once every destination has it (KEEP_VIDEOS=false); otherwise a retry needs it.
+        youtube_done = "youtube" not in to or status in ("uploaded", "scheduled")
+        everywhere = youtube_done and all((posted.get(p) or {}).get("status") in crosspost.DONE
+                                          for p in to if p != "youtube")
+        if everywhere and not self.s.keep_videos:
+            Path(rec["video_path"]).unlink(missing_ok=True)
+            self.history.update_video(rid, video_path=None)
+        return status
+
+    def _to_youtube(self, rid: int, rec: dict, meta: dict, folder: Path, publish, result: Result | None) -> str:
         body = youtube.build_body(self.s, rec["title"], rec["description"] or "",
                                   json.loads(rec["tags"] or "[]"), meta.get("category_id", "27"),
                                   meta.get("language", self.s.language), publish,
@@ -606,11 +670,8 @@ class Studio:
                                     LANGUAGES.get(lang.split("-")[0], lang))
         status = "scheduled" if publish else "uploaded"
         publish_iso = youtube.to_rfc3339(publish) if publish else None
-        fields = dict(status=status, youtube_id=vid, uploaded_at=now_iso(), publish_at=publish_iso, error=None)
-        if not self.s.keep_videos:
-            Path(rec["video_path"]).unlink(missing_ok=True)
-            fields["video_path"] = None
-        self.history.update_video(rid, **fields)
+        self.history.update_video(rid, status=status, youtube_id=vid, uploaded_at=now_iso(), publish_at=publish_iso,
+                                  error=None)
         when = f", goes public {publish.strftime('%a %d %b %H:%M %Z')}" if publish else ""
         log.info("%s: https://youtube.com/shorts/%s%s", status.capitalize(), vid, when)
         notify.send(self.s, status, title=rec["title"], url=f"https://youtube.com/shorts/{vid}",

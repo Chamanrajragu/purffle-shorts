@@ -301,3 +301,6 @@ pre.code { margin: 0; background: var(--bg); border: 1px solid var(--line); bord
 }
 @media (max-width: 480px) { .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); } .swatches { grid-template-columns: repeat(2, minmax(0, 1fr)); } .lib { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+.chips.posts { margin: 6px 0 2px; }
+.chips.posts a.chip { text-decoration: none; }

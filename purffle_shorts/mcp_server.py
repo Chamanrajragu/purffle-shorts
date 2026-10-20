@@ -54,7 +54,8 @@ TOOLS: list[dict] = [
                                    "the background video below."},
          "sound_effects": {"type": "boolean", "description": "Whooshes, pops and hits. Default true."},
          "emoji": {"type": "boolean", "description": "An emoji per scene above the captions. Default true."},
-         "upload": {"type": "boolean", "description": "Upload to YouTube when done. Default false."},
+         "upload": {"type": "boolean", "description": "Publish when done: to YouTube and the other networks in "
+                                                      "PUBLISH_TO (TikTok, Instagram...). Default false."},
          "demo": {"type": "boolean", "description": "No-key demo: sample script and generated backgrounds."}}}},
     {"name": "draft_script",
      "description": "Write (and self-review) a video script without rendering it. Returns the script JSON, which "
@@ -82,7 +83,8 @@ TOOLS: list[dict] = [
      "description": "List recent videos with id, status, title, YouTube link and retention score.",
      "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}}}},
     {"name": "upload_video",
-     "description": "Upload (or schedule, if publish times are set) a rendered video to YouTube by its id.",
+     "description": "Publish (or schedule, if publish times are set) a rendered video by its id: to YouTube and the "
+                    "other networks in PUBLISH_TO (TikTok, Instagram...). Retries only what didn't go out.",
      "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}}},
 ]
 
@@ -160,9 +162,13 @@ class Server:
         return "\n".join(out)
 
     def upload_video(self, a: dict) -> str:
-        from .pipeline import Studio
-        status = Studio(self.settings).upload_record(int(a["id"]))
-        return f"Video #{a['id']}: {status}"
+        from .pipeline import Result, Studio
+        r = Result(True)
+        status = Studio(self.settings).upload_record(int(a["id"]), r)
+        posts = "".join(f"\n  {p}: {v.get('status')}" + (f" {v['url']}" if v.get("url") else "")
+                        + (f" ({v['error']})" if v.get("error") else "") for p, v in r.posts.items())
+        link = f"\n  https://youtube.com/shorts/{r.youtube_id}" if r.youtube_id else ""
+        return f"Video #{a['id']}: {status}{link}{posts}"
 
     # ---------------------------------------------------------------- protocol
     def handle(self, msg: dict) -> dict | None:
@@ -234,4 +240,7 @@ def _describe(r) -> str:
         parts.append(f"  {'virality' if reason else 'retention'} score: {r.score}/100" + (f" ({reason})" if reason else ""))
     if r.youtube_id:
         parts.append(f"  https://youtube.com/shorts/{r.youtube_id}")
+    for p, v in (getattr(r, "posts", None) or {}).items():
+        parts.append(f"  {p}: {v.get('status')}" + (f" {v['url']}" if v.get("url") else "")
+                     + (f" ({v['error']})" if v.get("error") else ""))
     return "\n".join(parts)

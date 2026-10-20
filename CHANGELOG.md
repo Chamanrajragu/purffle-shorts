@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- **TikTok, Instagram Reels and more** (`PUBLISH_TO=youtube,tiktok,instagram`, `--publish-to`). Each video goes to every listed network with a caption cut to that network's length and without `#shorts`, at the same publish slot as YouTube.
+  - TikTok and Facebook, Threads, X, LinkedIn, Bluesky and Pinterest go through the Upload-Post relay (`UPLOAD_POST_API_KEY`, `UPLOAD_POST_USER`, `TIKTOK_PRIVACY`). TikTok's own API only lets audited apps publish public videos.
+  - Instagram can instead use its official API (`INSTAGRAM_USER_ID`, `INSTAGRAM_ACCESS_TOKEN`), with a resumable upload straight from your computer.
+  - Each network's result (posted, scheduled, submitted, draft, failed or skipped) is saved in `metadata.json` and shown in the Studio.
+  - `upload --id N` and the Studio's **Publish the rest** re-send only what failed, and never upload to YouTube twice. The MP4 is kept until every destination has it.
+  - Tested against recorded API responses, not yet against live TikTok or Instagram accounts.
 - **Sound effects**, made in code (no files to license): a whoosh on each scene change, a pop as each text message lands, a low hit under the hook. They are placed 11 dB under the voice, measured after the voice clean-up, so the balance is the same whichever TTS engine spoke (`SOUND_EFFECTS`, `SFX_VOLUME`, `--no-sfx`).
 - **Key-word emphasis**: the script writer marks the one or two words that carry each scene (a strict-schema field), and numbers are always included. Both caption renderers draw them in each style's emphasis colour (`CAPTION_EMPHASIS`).
 - **Emoji**: one emoji per scene pops up above the captions as the scene starts (Twemoji images, downloaded once and credited in the description; `CAPTION_EMOJI`, `--no-emoji`).

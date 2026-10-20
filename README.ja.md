@@ -4,7 +4,7 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [Español](README.es.md) · [Português](README.pt-BR.md) · [हिन्दी](README.hi.md) · **日本語**
 
-**YouTube Shorts、TikTok、Instagram Reels 向けのオープンソース AI 動画生成ツールです。トピック、Web ページ、Reddit の投稿、長いポッドキャストを渡すと、完成した縦型動画（台本、ナレーション、映像素材、字幕）を作成し、YouTube にアップロードまたは予約投稿します。**
+**YouTube Shorts、TikTok、Instagram Reels 向けのオープンソース AI 動画生成ツールです。トピック、Web ページ、Reddit の投稿、長いポッドキャストを渡すと、完成した縦型動画（台本、ナレーション、映像素材、字幕）を作成し、YouTube、TikTok、Instagram にアップロードまたは予約投稿します。**
 
 [![CI](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml/badge.svg)](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb)
@@ -48,6 +48,7 @@ PurffleShorts は、顔出しなしのチャンネル向けの YouTube Shorts �
 - **視聴維持を意識した編集：** AI が選んだキーワードとすべての数字を別の色で表示し、シーンごとに絵文字を 1 つ字幕の上にポップアップさせます。効果音はコードで生成し（シーンの切り替わりにシュッという音、メッセージごとにポンという音、フックの下に低い衝撃音）、声より 11 dB 小さくミックスします。
 - **サムネイル：** 冒頭数秒のうち、最もシャープで明るさが適切なフレームを選びます。トランジションの途中のフレームは選びません。
 - **9:16、16:9、1:1、4:5** で出力し、ffmpeg でレンダリングします。GPU は不要です。
+- **TikTok と Instagram Reels にも投稿**（`PUBLISH_TO=youtube,tiktok,instagram`）。キャプションはネットワークごとに調整します。
 - **YouTube へのアップロード**、または各動画を次の空き時間枠に予約投稿でき、AI 生成コンテンツの開示設定も行います。
 - **1 本の動画を多言語で：** `--also-lang es,hi` で、同じ映像素材を再利用した翻訳版を作成します。
 - **Studio Web アプリ**を自分のコンピューター上で使えます。下書き、編集、レンダリング、ライブラリの閲覧ができます。進捗は即座に届き、パーセンテージと残り時間（自分のコンピューターでの実績から算出）も表示され、**Cancel** ボタンで実行中のジョブを止められます。サーバーで動かす場合は `STUDIO_PASSWORD` でパスワード保護できます。
@@ -121,7 +122,7 @@ purffle-shorts clip episode.mp4 --prompt "いちばん面白い場面"   # 指�
 
 **API キーなしで試せますか？** はい。`demo` コマンドを使えば、キーなしでサンプル動画をレンダリングできます。
 
-**TikTok や Instagram にも投稿できますか？** アップロード先は YouTube のみです。どの動画もカバー画像と字幕が付いた標準的な MP4 なので、同じファイルを TikTok や Reels に自分で投稿できます（YouTube へのアップロード後、MP4 は削除されます。残すには `KEEP_VIDEOS=true` を設定してください）。
+**TikTok や Instagram にも投稿できますか？** はい。`PUBLISH_TO=youtube,tiktok,instagram` を設定します。TikTok には [Upload-Post](https://www.upload-post.com) 経由で投稿します（`UPLOAD_POST_API_KEY`、`UPLOAD_POST_USER`。TikTok は有料プランが必要です）。TikTok の公式 API では、審査を通ったアプリしか公開動画を投稿できないためです。Instagram は無料の公式 API（`INSTAGRAM_USER_ID`、`INSTAGRAM_ACCESS_TOKEN`）か Upload-Post で投稿できます。ネットワークごとに専用のキャプションが付き、同じ公開時刻に投稿されます。`upload --id N` は失敗したものだけを送り直します。この連携は各サービスの公開 API に沿って作られていますが、実際のアカウントではまだ試していません。
 
 **GPU は必要ですか？** いいえ。レンダリングには CPU 上の ffmpeg を使います。NVIDIA GPU があれば、`clip` の文字起こしで活用します。
 

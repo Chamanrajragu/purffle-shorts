@@ -151,6 +151,7 @@ def _common(p: argparse.ArgumentParser) -> None:
     u.add_argument("--no-upload", action="store_true", help="render only, keep the MP4")
     u.add_argument("--privacy", help="public|unlisted|private")
     u.add_argument("--publish-times", help="schedule slots, e.g. 09:00,14:00,19:00")
+    u.add_argument("--publish-to", help="where uploads go, e.g. youtube,tiktok,instagram (default: PUBLISH_TO)")
     p.add_argument("--env-file", help="load settings from this file (one per channel)")
     p.add_argument("-v", "--verbose", action="store_true")
 
@@ -188,6 +189,13 @@ def build_settings(args: argparse.Namespace) -> Settings:
         ov["upload"] = False
     if getattr(args, "publish_times", None):
         ov["publish_times"] = [t.strip() for t in args.publish_times.split(",") if t.strip()]
+    if getattr(args, "publish_to", None):
+        from .crosspost import PLATFORMS
+        dest = [t.strip().lower() for t in args.publish_to.split(",") if t.strip()]
+        bad = [d for d in dest if d not in PLATFORMS]
+        if bad or not dest:
+            raise ConfigError(f"--publish-to: unknown {', '.join(bad) or '(empty)'} (choose from {', '.join(PLATFORMS)})")
+        ov["publish_to"] = dest
     s = s.with_overrides(**ov)
     if s.target_seconds:
         s.target_seconds = max(10, min(170, s.target_seconds))
@@ -236,16 +244,21 @@ def cmd_make(args, s: Settings) -> int:
     return 0 if ok else 1
 
 
+def _posts(r) -> str:
+    return "".join(f"\n  {p}: {v.get('status')}" + (f" {v['url']}" if v.get("url") else "")
+                   + (f" ({v['error']})" if v.get("error") else "") for p, v in (getattr(r, "posts", None) or {}).items())
+
+
 def print_result(r) -> None:
     if not r.ok:
-        print(f"\n✘ {r.language + ' ' if r.language else ''}failed: {r.error}")
+        print(f"\n✘ {r.language + ' ' if r.language else ''}failed: {r.error}" + _posts(r))
         return
     kind = "virality score" if r.reason else "retention score"
     score = f"\n  {kind}: {r.score}/100" if r.score is not None else ""
     if r.reason:
         score += f" ({r.reason})"
     print(f"\n✔ {r.title}\n  folder: {r.folder}\n  status: {r.status}{score}"
-          + (f"\n  https://youtube.com/shorts/{r.youtube_id}" if r.youtube_id else ""))
+          + (f"\n  https://youtube.com/shorts/{r.youtube_id}" if r.youtube_id else "") + _posts(r))
 
 
 def cmd_demo(args, s: Settings) -> int:
@@ -275,7 +288,20 @@ def cmd_upload(args, s: Settings) -> int:
         print(f"Uploaded {n} video(s). Remaining today: {max(0, studio.quota_left())}")
         return 0
     if args.id:
-        return 0 if studio.upload_record(args.id) in ("uploaded", "scheduled") else 1
+        from .pipeline import Result
+        rec = studio.history.get(args.id)
+        if not rec:
+            print(f"No video #{args.id} (see `history`).")
+            return 1
+        r = Result(True, rec["title"], Path(rec["folder"]) if rec["folder"] else None, status=rec["status"],
+                   record_id=args.id, youtube_id=rec.get("youtube_id"))
+        status = studio.upload_record(args.id, r)
+        r.status = status
+        if status not in ("uploaded", "scheduled", "queued"):
+            r.ok = False
+            r.error = r.error or (studio.history.get(args.id) or {}).get("error") or status
+        print_result(r)
+        return 0 if status in ("uploaded", "scheduled") else 1
     print("Use --pending (everything not yet uploaded) or --id N (see `history`).")
     return 2
 
@@ -503,10 +529,10 @@ def build_parser() -> argparse.ArgumentParser:
     _common(d)
     d.set_defaults(func=cmd_demo)
 
-    up = sub.add_parser("upload", help="upload rendered or queued videos")
+    up = sub.add_parser("upload", help="publish rendered or queued videos (YouTube and PUBLISH_TO networks)")
     _common(up)
-    up.add_argument("--pending", action="store_true", help="upload everything not yet on YouTube")
-    up.add_argument("--id", type=int, help="upload one video by history id")
+    up.add_argument("--pending", action="store_true", help="publish everything rendered or queued")
+    up.add_argument("--id", type=int, help="publish one video by history id (retries only what didn't go out)")
     up.set_defaults(func=cmd_upload)
 
     for name, func, helptext in [("auth", cmd_auth, "connect your YouTube channel (OAuth)"),

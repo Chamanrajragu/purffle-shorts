@@ -360,6 +360,7 @@ class StudioServer:
                 "review": s.script_review, "aspect": next((k for k, v in ASPECTS.items() if v == s.resolution),
                                                           f"{s.width}x{s.height}"),
                 "also_languages": s.also_languages, "learn_from_stats": s.learn_from_stats,
+                "publish_to": s.publish_to,
                 "counts": stats, "total": sum(stats.values()), "views": views,
                 "ideas": len(h.ideas("pending")), "channel": s.channel_name}
 
@@ -415,7 +416,7 @@ class StudioServer:
 def _result(r) -> dict:
     return {"ok": r.ok, "title": r.title, "status": r.status, "youtube_id": r.youtube_id, "error": r.error,
             "id": r.record_id, "score": r.score, "language": r.language, "seconds": round(r.seconds, 1),
-            "reason": getattr(r, "reason", ""),
+            "reason": getattr(r, "reason", ""), "posts": getattr(r, "posts", {}),
             "variants": [_result(v) for v in getattr(r, "variants", [])]}
 
 

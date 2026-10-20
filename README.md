@@ -4,7 +4,7 @@
 
 **English** · [简体中文](https://github.com/Chamanrajragu/purffle-shorts/blob/main/README.zh-CN.md) · [Español](https://github.com/Chamanrajragu/purffle-shorts/blob/main/README.es.md) · [Português](https://github.com/Chamanrajragu/purffle-shorts/blob/main/README.pt-BR.md) · [हिन्दी](https://github.com/Chamanrajragu/purffle-shorts/blob/main/README.hi.md) · [日本語](https://github.com/Chamanrajragu/purffle-shorts/blob/main/README.ja.md)
 
-**An open-source AI video generator for YouTube Shorts, TikTok and Instagram Reels. Give it a topic, a web page, a Reddit post or a long podcast, and it makes finished vertical videos (script, voiceover, footage, captions, sound effects), then uploads or schedules them on YouTube.**<br>
+**An open-source AI video generator for YouTube Shorts, TikTok and Instagram Reels. Give it a topic, a web page, a Reddit post or a long podcast, and it makes finished vertical videos (script, voiceover, footage, captions, sound effects), then uploads or schedules them on YouTube, TikTok and Instagram.**<br>
 YouTube automation in Python that runs on your own computer. The AI model you choose writes the script (GPT, Claude, Gemini, Llama through Ollama, DeepSeek, Grok, Mistral or any OpenAI-compatible API), using the phrases people actually search for on YouTube, and a second AI pass grades and rewrites it. Free neural voices read it, and stock footage, AI images or your own gameplay video fill the screen. Captions appear word by word, with key words in colour and an emoji per scene. It makes **Reddit story videos**, **fake text message videos** and **two-voice dialogues**, and **clips podcasts into Shorts** with jump cuts and face tracking. Free, MIT-licensed, no watermark. It also works from Claude Desktop, Claude Code and Cursor through MCP.
 
 [![CI](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml/badge.svg)](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml)
@@ -17,7 +17,7 @@ YouTube automation in Python that runs on your own computer. The AI model you ch
 [![Voices](https://img.shields.io/badge/voices-322_free_·_75_languages-0ea5e9)](#%EF%B8%8F-voices)
 [![Formats](https://img.shields.io/badge/formats-Reddit_stories_·_text_stories_·_dialogues-f59e0b)](#-formats)
 [![Clipping](https://img.shields.io/badge/podcast_clipping-jump_cuts_·_face_tracking-8b5cf6)](#%EF%B8%8F-clip-podcasts-into-shorts-free-opus-clip-alternative)
-[![YouTube](https://img.shields.io/badge/YouTube-auto_upload_%26_schedule-FF0000?logo=youtube&logoColor=white)](#-publishing--scheduling)
+[![Publish](https://img.shields.io/badge/auto_upload-YouTube_·_TikTok_·_Instagram-FF0000?logo=youtube&logoColor=white)](#-publishing--scheduling)
 [![MCP](https://img.shields.io/badge/MCP-Claude_Desktop_·_Cursor-d97757)](#-use-it-from-claude-and-other-ai-apps-mcp)
 
 [Features](#-features) · [Quick start](#-quick-start) · [Colab](#%EF%B8%8F-run-it-in-google-colab) · [Formats](#-formats) · [Reddit & gameplay](#-reddit-story-videos-over-gameplay-split-screen) · [Clip podcasts](#%EF%B8%8F-clip-podcasts-into-shorts-free-opus-clip-alternative) · [SEO](#-seo-built-in-real-youtube-searches-localised-titles-captions) · [AI models](#-ai-models) · [Voices](#%EF%B8%8F-voices) · [Publishing](#-publishing--scheduling) · [Studio](#%EF%B8%8F-studio-web-app) · [API](#-rest-api-and-automation-n8n-zapier-cron) · [MCP](#-use-it-from-claude-and-other-ai-apps-mcp) · [Compare](#%EF%B8%8F-how-it-compares) · [FAQ](#-faq)
@@ -55,7 +55,7 @@ Beyond the autopilot, it is a small studio:
 - Publish the same video in **several languages**, and plan a week of ideas from **what people search for on YouTube**.
 - Let the channel's own view counts steer new scripts.
 
-It is made for **content creators**, **faceless YouTube channels**, **educators** and **marketers** who want short-form video at volume without editing by hand. It runs on your own computer (macOS, Windows, Linux), in **Docker** or in **Google Colab**. You pick every model, and the vertical 9:16 MP4s work for **TikTok** and **Instagram Reels** too.
+It is made for **content creators**, **faceless YouTube channels**, **educators** and **marketers** who want short-form video at volume without editing by hand. It runs on your own computer (macOS, Windows, Linux), in **Docker** or in **Google Colab**. You pick every model, and the same video can go to **TikTok** and **Instagram Reels** as well as YouTube.
 
 ---
 
@@ -117,6 +117,7 @@ It is made for **content creators**, **faceless YouTube channels**, **educators*
 
 **Publishing & SEO**
 - Uploads to YouTube, or schedules each video into your next free time slot.
+- **TikTok, Instagram Reels and more** (`PUBLISH_TO=youtube,tiktok,instagram`): the same video goes out with a caption written for each network, at the same publish slot, through Upload-Post or Instagram's own API. Each network's result is saved, and a retry only re-sends what failed.
 - **Localised titles and descriptions** (`LOCALIZE_METADATA=es,pt,hi`), so viewers see the video under a title in their own language, and optional **caption-track upload** (`UPLOAD_CAPTIONS`) so YouTube can index every word.
 - Quota-aware queue, AI-content disclosure, playlists, privacy, made-for-kids flag.
 - Every video also gets a cover image, SRT subtitles and a metadata file for cross-posting.
@@ -142,6 +143,7 @@ It is made for **content creators**, **faceless YouTube channels**, **educators*
 | **Search-led SEO** | Topics and keywords from real YouTube searches, titles and descriptions localised for other languages, optional caption-track upload |
 | **Better scripts** | Script Doctor 2.0: a six-part rubric, automatic checks, and a rewrite kept only if it scores at least as well |
 | **Faster, live renders** | About 40% faster on the same machine, a Studio that pushes progress with a time-left estimate, and cancel at any time |
+| **TikTok and Instagram** | `PUBLISH_TO=youtube,tiktok,instagram`: one video to every network, scheduled together, each result tracked and retried on its own |
 | **Run it anywhere** | Google Colab notebook, docker compose with the published image, REST API with an n8n recipe |
 
 The [changelog](https://github.com/Chamanrajragu/purffle-shorts/blob/main/CHANGELOG.md) has the full list, with the measured before-and-after numbers.
@@ -167,14 +169,14 @@ Open-source Shorts tools each cover part of the job: some write videos from a to
 | Silence and filler removal in clips | ✅ | ❌ no clipping | ❌ no clipping | ❌ no clipping | ❔ | ❔ |
 | Videos in other languages | ✅ | ✅ | ✅ | ✅ | ➖ | ✅ paid dubbing |
 | YouTube upload and scheduling | ✅ official API | ➖ via Upload-Post, no scheduling | ❌ | ❌ by design | ❌ | ✅ via Upload-Post |
-| TikTok / Instagram upload | ❌ files only | ✅ via Upload-Post | ❌ | ❌ | ❌ | ✅ via Upload-Post |
+| TikTok / Instagram upload | ✅ via Upload-Post, or Instagram's API | ✅ via Upload-Post | ❌ | ❌ | ❌ | ✅ via Upload-Post |
 | MCP server | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ clipping |
 | Web app | ✅ | ✅ | ✅ | ➖ settings only | ❌ | ✅ |
 | Colab notebook | ✅ | ✅ | ✅ | ❔ | ❔ | ❔ |
 | Tests and CI | ✅ | ✅ | ❌ | ➖ lint only | ❌ | ✅ |
 | License | MIT | MIT | MIT | GPL-3.0 | MIT | MIT |
 
-<sub>✅ yes · ➖ partly · ❌ no · ❔ not stated. Compiled on 29 September 2026 from each project's README and code; the gameplay, silence-removal and Colab rows were checked on 20 October 2026. Projects change quickly: if a cell is wrong, please <a href="https://github.com/Chamanrajragu/purffle-shorts/issues">open an issue</a> and it will be fixed. Where others are ahead: MoneyPrinterTurbo and OpenShorts can post to TikTok and Instagram through the Upload-Post service, RedditVideoMakerBot ships a library of background videos, and MoneyPrinterTurbo has a one-click Windows package.</sub>
+<sub>✅ yes · ➖ partly · ❌ no · ❔ not stated. Compiled on 29 September 2026 from each project's README and code; the gameplay, silence-removal and Colab rows were checked on 20 October 2026. Projects change quickly: if a cell is wrong, please <a href="https://github.com/Chamanrajragu/purffle-shorts/issues">open an issue</a> and it will be fixed. Where others are ahead: RedditVideoMakerBot ships a library of background videos, and MoneyPrinterTurbo has a one-click Windows package.</sub>
 
 ---
 
@@ -519,11 +521,24 @@ The caption font is downloaded once from Google Fonts (Anton for Latin scripts, 
 
 ## 📅 Publishing & scheduling
 
+`PUBLISH_TO` lists where each video goes: `youtube` (the default), `tiktok`, `instagram`, and through Upload-Post also `facebook`, `threads`, `x`, `linkedin`, `bluesky` and `pinterest`. With `PUBLISH_TIMES`, every network gets the same slot.
+
+| Network | How | What you set |
+|---|---|---|
+| **YouTube** | The official YouTube Data API with your Google sign-in | `credentials.json`, then `purffle-shorts auth` |
+| **TikTok** | [Upload-Post](https://www.upload-post.com), a relay that holds the TikTok sign-in. TikTok only lets audited apps publish public videos through its own API, so this is the dependable route. TikTok needs a paid Upload-Post plan | Create a profile on upload-post.com and connect TikTok to it, then set `UPLOAD_POST_API_KEY` and `UPLOAD_POST_USER` (the profile's name). Optional: `TIKTOK_PRIVACY` |
+| **Instagram Reels** | Instagram's official API, free: the video is sent straight from your computer (resumable upload, no public link needed) and published as a Reel. Instagram's API can't schedule, so it posts right away. Without these keys, Instagram goes through Upload-Post | `INSTAGRAM_USER_ID` and `INSTAGRAM_ACCESS_TOKEN` from a Meta app with Facebook Login for Business (permission `instagram_content_publish`, a professional account) |
+| **Facebook, Threads, X, LinkedIn, Bluesky, Pinterest** | Upload-Post | Connect them to the same Upload-Post profile |
+
+Captions are written for each network: the title, the description and its hashtags, without `#shorts`, cut to each network's length. The cover frame is passed to Instagram. A network that fails never stops the others or the video. Its result is saved in `metadata.json` and shown in the Studio, and `upload --id N` (or **Publish the rest** in the Studio) re-sends only what didn't go out.
+
+> These integrations follow each service's published API and are covered by tests against recorded responses, but they have not yet been run against live TikTok and Instagram accounts. Please [open an issue](https://github.com/Chamanrajragu/purffle-shorts/issues) if a post doesn't go out as expected.
+
 - `YT_PRIVACY=public|unlisted|private`.
 - `PUBLISH_TIMES=09:00,14:00,19:00` with `TIMEZONE=Asia/Kolkata` uploads each video as private and schedules it into the next free slot. Render in bulk, release on schedule.
 - **Paced and quota-aware.** `YT_DAILY_LIMIT=6` uploads a day by default. That is a pace you choose, not the API's ceiling: uploads now have their own API bucket of 100 a day at 1 unit each ([Google's quota table](https://developers.google.com/youtube/v3/determine_quota_cost), updated 15 September 2026). Extra videos are queued, and so are videos YouTube refuses because the project or the channel hit a limit (`quotaExceeded`, `uploadLimitExceeded`); after a refusal nothing else is tried that day. On autopilot the queue is uploaded first after the reset at midnight Pacific time, and production waits instead of piling up. Without autopilot, run `upload --pending` after the reset.
 - `SYNTHETIC_MEDIA=true` sets YouTube's *altered or synthetic content* disclosure. `MADE_FOR_KIDS`, `PLAYLIST_ID` and category (chosen by the AI) are set too.
-- Each video's folder holds `short.mp4` (`video.mp4` for 16:9), `cover.jpg`, `captions.srt`, `script.json` and `metadata.json` (including the retention score), ready to cross-post to TikTok or Reels. `KEEP_VIDEOS=false` deletes the MP4 after a successful upload.
+- Each video's folder holds `short.mp4` (`video.mp4` for 16:9), `cover.jpg`, `captions.srt`, `script.json` and `metadata.json` (including the retention score and where it was posted). `KEEP_VIDEOS=false` deletes the MP4 once every destination has it.
 - **Notifications:** `NOTIFY_WEBHOOK=https://discord.com/api/webhooks/…` (or a Slack incoming webhook, or any URL for JSON) posts a message when a video is rendered, uploaded, scheduled, queued or fails.
 
 ---
@@ -543,14 +558,14 @@ python -m purffle_shorts <command> [options]        # or `purffle-shorts <comman
 | `plan` / `ideas` | Let the AI plan ideas into the queue / list, add or remove queued ideas |
 | `stats` | Refresh and show view counts of your uploads |
 | `mcp` | Run as an MCP server for Claude Desktop, Claude Code, Cursor… |
-| `upload` | `--pending` uploads rendered and queued videos, up to today's `YT_DAILY_LIMIT`; `--id N` uploads one |
+| `upload` | `--pending` publishes rendered and queued videos, up to today's `YT_DAILY_LIMIT`; `--id N` publishes one, or re-sends only the networks that failed |
 | `auth` | Connect your YouTube channel |
 | `doctor` | Check ffmpeg and libass, LLM (including whether the Ollama model is pulled), voices, keys, footage sources, YouTube setup |
 | `providers` / `voices` | List LLM providers / free voices |
 | `history` | Everything made so far, with links |
 | `studio` | Local web app |
 
-Common options: `--source queue|search|trending|wikipedia|reddit|rss|file|niche`, `--niche "space"`, `--style facts|story|listicle|myth|quiz|explainer|motivational|news|dialogue|chat|reddit`, `--lang`, `--duration 45`, `--aspect 9:16|16:9|1:1|4:5`, `--also-lang es,hi`, `--provider`, `--model`, `--no-review`, `--tts`, `--voice`, `--voice-b`, `--visuals`, `--caption-style`, `--grade`, `--transition`, `--resolution`, `--background video.mp4`, `--layout full|split`, `--no-music`, `--no-sfx`, `--no-emoji`, `--no-upload`, `--privacy`, `--publish-times`, `--env-file`.
+Common options: `--source queue|search|trending|wikipedia|reddit|rss|file|niche`, `--niche "space"`, `--style facts|story|listicle|myth|quiz|explainer|motivational|news|dialogue|chat|reddit`, `--lang`, `--duration 45`, `--aspect 9:16|16:9|1:1|4:5`, `--also-lang es,hi`, `--provider`, `--model`, `--no-review`, `--tts`, `--voice`, `--voice-b`, `--visuals`, `--caption-style`, `--grade`, `--transition`, `--resolution`, `--background video.mp4`, `--layout full|split`, `--no-music`, `--no-sfx`, `--no-emoji`, `--no-upload`, `--privacy`, `--publish-times`, `--publish-to youtube,tiktok,instagram`, `--env-file`.
 
 **Your own script:** every video folder has a `script.json`. Edit the narration, title or image prompts and render it again with `make --script path/to/script.json`. The files in [`examples/`](https://github.com/Chamanrajragu/purffle-shorts/tree/main/examples) show the format.
 
@@ -566,7 +581,7 @@ Common options: `--source queue|search|trending|wikipedia|reddit|rss|file|niche`
 python -m purffle_shorts studio        # opens http://127.0.0.1:8765
 ```
 
-- **Create:** topic, web page, idea queue or "surprise me"; eleven formats; language, length, aspect, voices, caption style (with a preview), grade, transitions, footage sources, a background video (full or split screen), sound effects, key-word colours, emoji, model, Script Doctor mode, extra languages, upload.
+- **Create:** topic, web page, idea queue or "surprise me"; eleven formats; language, length, aspect, voices, caption style (with a preview), grade, transitions, footage sources, a background video (full or split screen), sound effects, key-word colours, emoji, model, Script Doctor mode, extra languages, and publishing to YouTube, TikTok and Instagram.
 - **Draft, then edit:** the AI writes and reviews the script, you see the retention score and the problems it found, change any line, reorder or add scenes, switch speakers, then render exactly that script.
 - **Live progress** through topic, script, review, voice, footage, captions, render and upload, with the log.
 - **Library:** thumbnails with status, format, language and score; open one to play it, download the MP4 or captions, upload it, edit and re-render it, or delete it.
@@ -677,7 +692,7 @@ Yes. `python -m purffle_shorts demo` renders a sample Short with no keys, and so
 Yes: OpenAI GPT models (including GPT-5 and the o-series), Anthropic Claude, Google Gemini, DeepSeek, Mistral, xAI Grok, Llama through Groq, Together AI, Ollama or LM Studio, hundreds more through OpenRouter, and any OpenAI-compatible endpoint.
 
 **Can it post to TikTok or Instagram Reels?**<br>
-It uploads to YouTube only. Every video is a standard MP4 (9:16, or 1:1 / 4:5 for feeds) with a cover image, subtitles and metadata, so you can post the same file to TikTok and Reels yourself.
+Yes: `PUBLISH_TO=youtube,tiktok,instagram`. TikTok goes through Upload-Post, because TikTok's own API only lets audited apps publish public videos. Instagram can use its free official API or Upload-Post. Each network gets its own caption and the same publish slot ([details](#-publishing--scheduling)). Every video is also a standard MP4 with a cover image and subtitles, if you would rather post it yourself.
 
 **How many Shorts can it upload per day?**<br>
 Six by default (`YT_DAILY_LIMIT`). You can raise it: the YouTube API now gives uploads their own bucket of 100 a day. Posting many videos at once rarely helps a channel, so the default stays modest. Anything over the limit waits in a queue and uploads after the daily reset.
@@ -772,6 +787,10 @@ purffle-shorts/
 | Sound effects too loud or too quiet | `SFX_VOLUME=0.5` (quieter) or `2.0` (louder); `SOUND_EFFECTS=false` or `--no-sfx` turns them off |
 | No emoji in the video | They are downloaded once from the Twemoji CDN; without internet the video is made without them. `CAPTION_EMOJI=false` turns them off |
 | Clips feel cut too tightly | Raise `CLIP_MAX_PAUSE` (for example `1.0`), or use `--no-jump-cuts` |
+| `Upload-Post HTTP 403` for TikTok | TikTok isn't in Upload-Post's free plan. Upgrade, or remove `tiktok` from `PUBLISH_TO` |
+| TikTok says `draft` | The video went to your TikTok inbox instead of going live (for example, the account needs to confirm it); open TikTok to publish it |
+| `Instagram couldn't … check INSTAGRAM_ACCESS_TOKEN` | Instagram tokens expire: create a long-lived token again, or leave Instagram to Upload-Post |
+| A network failed but YouTube worked | `purffle-shorts upload --id N` re-sends only the networks that failed; the MP4 is kept until every destination has it |
 | `BACKGROUND_VIDEO=… has no video files` | Point it at a video file or a folder that contains `.mp4`, `.mov`, `.mkv`, `.webm` or `.m4v` files |
 | Transcription fails with `metadata_errors` | Fixed: audio is now decoded by ffmpeg before Whisper, so any PyAV version works. Update PurffleShorts |
 

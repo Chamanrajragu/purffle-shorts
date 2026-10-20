@@ -49,7 +49,7 @@ outcome. For a video that is `{"ok": true, "id": 12, "title": "…", "status": "
 | `POST /api/draft` | same fields as make | Write and review a script without rendering (job). `result.script` is the script JSON. |
 | `POST /api/clip` | `source`, `count`, `crop`, `brief`, `jump_cuts`, `zoom`, `min_seconds`, `max_seconds`, `upload` | Clip a long video into Shorts (job). `result.clips` lists each clip with its virality `score` and `reason`. |
 | `POST /api/plan` | `count`, `niche` | Add AI-planned ideas to the queue (job). |
-| `POST /api/upload/<id>` | | Upload or schedule a rendered video (job). |
+| `POST /api/upload/<id>` | | Publish or schedule a rendered video to YouTube and the networks in `PUBLISH_TO` (job). Sending it again only retries what didn't go out; `metadata.json` (`GET /api/videos/<id>`) has each network's result under `published`. |
 | `POST /api/jobs/<id>/cancel` | | Cancel a queued job, or stop the running one. |
 | `POST /api/ideas` | `subject`, `style`, `notes` | Queue an idea. |
 | `POST /api/ideas/<id>/delete` | | Remove an idea. |
@@ -81,7 +81,7 @@ Every field is optional. Anything left out uses your `.env`.
 | `background`, `layout` | `"media/backgrounds/parkour.mp4"`, `"split"` | A video to play under the whole story: `full` (it is the picture) or `split` (footage on top). |
 | `music`, `sfx`, `emphasis` | `true` | Background music, sound effects, key words highlighted in colour. |
 | `also_langs` | `"es,hi"` | Also make translated copies. |
-| `upload` | `true` | Upload or schedule when done (only if `UPLOAD=true` in `.env`). |
+| `upload` | `true` | Publish when done, to YouTube and the networks in `PUBLISH_TO` (only if `UPLOAD=true` in `.env`). `result.posts` has each network's status and link. |
 | `offline` | `true` | Demo mode: no keys, sample script, generated backgrounds. |
 
 ## Examples

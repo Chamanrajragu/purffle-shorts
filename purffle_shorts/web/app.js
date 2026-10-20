@@ -378,7 +378,7 @@ function drawForm() {
     <div class="field"><label>Script Doctor</label>${seg("review", [["off", "Off"], ["score", "Score only"], ["rewrite", "Score & rewrite"]], f.review)}<p class="hint">A second AI pass grades the hook and pacing, then rewrites weak lines.</p></div>
     <div class="field"><label>Also make it in</label><input type="text" data-f="also_langs" value="${esc(f.also_langs)}" placeholder="e.g. es, hi, pt — translated copies, same footage"></div>
     <div class="grid2">
-      <label class="switch"><input type="checkbox" data-f="upload"${f.upload ? " checked" : ""}${S.info.upload ? "" : " disabled"}><span>Upload to YouTube<small>${S.info.upload ? `${S.info.privacy}, or scheduled` : "disabled in .env (UPLOAD=false)"}</small></span></label>
+      <label class="switch"><input type="checkbox" data-f="upload"${f.upload ? " checked" : ""}${S.info.upload ? "" : " disabled"}><span>Publish when done<small>${S.info.upload ? publishTo() : "disabled in .env (UPLOAD=false)"}</small></span></label>
       <label class="switch"><input type="checkbox" data-f="offline"${f.offline ? " checked" : ""}><span>Demo mode<small>No keys: sample script, generated backgrounds</small></span></label>
     </div>
   </section>
@@ -626,6 +626,29 @@ async function drawLibrary() {
     </button>`).join("");
 }
 
+function publishTo() {
+  const name = { youtube: "YouTube", tiktok: "TikTok", instagram: "Instagram", facebook: "Facebook", threads: "Threads", x: "X", linkedin: "LinkedIn", bluesky: "Bluesky", pinterest: "Pinterest" };
+  const list = (S.info.publish_to || ["youtube"]).map(p => name[p] || p).join(", ");
+  return `${list}${(S.info.publish_to || ["youtube"]).includes("youtube") ? ` · ${S.info.privacy}, or scheduled` : ""}`;
+}
+// Where a video still has to go: YouTube until it has an id, every other network until it is out.
+const POSTED = new Set(["posted", "scheduled", "submitted", "draft"]);
+function toPublish(v, m) {
+  const done = m.published || {};
+  return (S.info.publish_to || ["youtube"]).filter(p => p === "youtube" ? !v.youtube_id : !POSTED.has((done[p] || {}).status));
+}
+function postsHtml(published) {
+  const items = Object.entries(published || {});
+  if (!items.length) return "";
+  const name = { tiktok: "TikTok", instagram: "Instagram", facebook: "Facebook", threads: "Threads", x: "X", linkedin: "LinkedIn", bluesky: "Bluesky", pinterest: "Pinterest" };
+  return `<div class="chips posts">${items.map(([p, r]) => {
+    const tone = POSTED.has(r.status) ? "ok" : r.status === "skipped" ? "" : "bad";
+    const label = `${esc(name[p] || p)} · ${esc(r.status)}`;
+    const tip = r.error ? ` title="${esc(r.error)}"` : "";
+    return r.url && /^https:\/\//.test(r.url) ? `<a class="chip ${tone}" href="${esc(r.url)}" target="_blank" rel="noopener"${tip}>${label} ↗</a>` : `<span class="chip ${tone}"${tip}>${label}</span>`;
+  }).join("")}</div>`;
+}
+
 async function openVideo(id) {
   let v;
   try { v = await get("/api/videos/" + id); } catch (e) { return toast(esc(e.message), "bad"); }
@@ -642,9 +665,10 @@ async function openVideo(id) {
       <div class="chips"><span class="chip ${STATUS_CHIP[v.status] || ""}">${esc(v.status)}</span>${v.style ? `<span class="chip">${esc(v.style)}</span>` : ""}${v.language ? `<span class="chip">${esc(v.language)}</span>` : ""}${v.parent_id ? `<span class="chip" data-open="${v.parent_id}">translation of #${v.parent_id}</span>` : ""}</div>
       <h2>${esc(v.title)}</h2>
       ${v.youtube_id ? `<p><a class="btn sm" href="https://youtube.com/shorts/${esc(v.youtube_id)}" target="_blank" rel="noopener">${I.yt}Open on YouTube</a>${v.publish_at ? ` <span class="muted">goes public ${esc(new Date(v.publish_at).toLocaleString())}</span>` : ""}</p>` : ""}
+      ${postsHtml(m.published)}
       ${v.error ? `<div class="banner">${I.info}<p>${esc(v.error)}</p></div>` : ""}
       <div class="actions">
-        ${v.video && !v.youtube_id ? `<button class="btn primary sm" type="button" id="d-up">${I.upload}Upload</button>` : ""}
+        ${v.video && toPublish(v, m).length ? `<button class="btn primary sm" type="button" id="d-up">${I.upload}Publish${toPublish(v, m).length < (S.info.publish_to || []).length ? " the rest" : ""}</button>` : ""}
         ${sc ? `<button class="btn sm" type="button" id="d-edit">${I.pen}Edit & re-render</button>` : ""}
         <button class="btn sm danger" type="button" id="d-del">${I.trash}Delete</button>
       </div>

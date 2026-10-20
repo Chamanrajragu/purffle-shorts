@@ -4,7 +4,7 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [Español](README.es.md) · [Português](README.pt-BR.md) · **हिन्दी** · [日本語](README.ja.md)
 
-**YouTube Shorts, TikTok और Instagram Reels के लिए एक ओपन-सोर्स AI वीडियो जनरेटर। इसे कोई टॉपिक, वेब पेज, Reddit पोस्ट या लंबा पॉडकास्ट दीजिए, और यह पूरी तरह तैयार वर्टिकल वीडियो बना देता है (स्क्रिप्ट, वॉइसओवर, फुटेज, कैप्शन), फिर उन्हें YouTube पर अपलोड या शेड्यूल कर देता है।**
+**YouTube Shorts, TikTok और Instagram Reels के लिए एक ओपन-सोर्स AI वीडियो जनरेटर। इसे कोई टॉपिक, वेब पेज, Reddit पोस्ट या लंबा पॉडकास्ट दीजिए, और यह पूरी तरह तैयार वर्टिकल वीडियो बना देता है (स्क्रिप्ट, वॉइसओवर, फुटेज, कैप्शन), फिर उन्हें YouTube, TikTok और Instagram पर अपलोड या शेड्यूल कर देता है।**
 
 [![CI](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml/badge.svg)](https://github.com/Chamanrajragu/purffle-shorts/actions/workflows/ci.yml)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Chamanrajragu/purffle-shorts/blob/main/notebooks/PurffleShorts.ipynb)
@@ -48,6 +48,7 @@ PurffleShorts फ़ेसलेस चैनलों के लिए एक Y
 - **रिटेंशन के लिए एडिटिंग:** AI जिन ख़ास शब्दों को चुनता है वे और सभी नंबर अलग रंग में दिखते हैं, और हर सीन का एक इमोजी कैप्शन के ऊपर उभरता है। कोड से बने साउंड इफ़ेक्ट भी हैं (हर सीन बदलने पर whoosh, हर मैसेज पर pop, हुक के नीचे एक हल्का hit), जो आवाज़ से 11 dB नीचे मिक्स होते हैं।
 - **कवर इमेज:** शुरुआती सेकंडों का सबसे साफ़ और सही रोशनी वाला फ़्रेम, ट्रांज़िशन के बीच का कोई फ़्रेम कभी नहीं।
 - **9:16, 16:9, 1:1 या 4:5** आउटपुट, ffmpeg से रेंडर होता है। GPU की ज़रूरत नहीं।
+- **TikTok और Instagram Reels पर भी पब्लिश करता है** (`PUBLISH_TO=youtube,tiktok,instagram`), हर नेटवर्क के लिए अलग कैप्शन के साथ।
 - **YouTube पर अपलोड** करता है या हर वीडियो को आपके अगले ख़ाली टाइम स्लॉट में शेड्यूल करता है, AI-कंटेंट डिस्क्लोज़र सेट करके।
 - **एक वीडियो, कई भाषाएँ:** `--also-lang es,hi` अनुवादित कॉपियाँ बनाता है जिनमें वही फुटेज दोबारा इस्तेमाल होती है।
 - **Studio वेब ऐप** आपके कंप्यूटर पर: ड्राफ़्ट करें, एडिट करें, रेंडर करें, लाइब्रेरी ब्राउज़ करें। प्रोग्रेस तुरंत दिखती है, प्रतिशत और बचे हुए समय के साथ, जिसका अंदाज़ा आपके अपने कंप्यूटर की रफ़्तार से लगाया जाता है, और **Cancel** बटन चलते हुए काम को उसी समय रोक देता है। Studio को सर्वर पर चलाएँ तो `STUDIO_PASSWORD` उसे पासवर्ड से सुरक्षित रखता है।
@@ -121,7 +122,7 @@ purffle-shorts clip episode.mp4 --prompt "सबसे मज़ेदार प
 
 **क्या इसे बिना API key के आज़मा सकते हैं?** हाँ: `demo` कमांड बिना किसी key के एक सैंपल वीडियो रेंडर करता है।
 
-**क्या यह TikTok या Instagram पर पोस्ट कर सकता है?** यह सिर्फ़ YouTube पर अपलोड करता है। हर वीडियो कवर इमेज और सबटाइटल के साथ एक स्टैंडर्ड MP4 होता है, इसलिए आप वही फ़ाइल TikTok और Reels पर ख़ुद पोस्ट कर सकते हैं (YouTube पर अपलोड के बाद MP4 डिलीट हो जाती है, जब तक आप `KEEP_VIDEOS=true` न करें)।
+**क्या यह TikTok या Instagram पर पोस्ट कर सकता है?** हाँ: `PUBLISH_TO=youtube,tiktok,instagram`। TikTok पर पोस्टिंग [Upload-Post](https://www.upload-post.com) के ज़रिए होती है (`UPLOAD_POST_API_KEY`, `UPLOAD_POST_USER`; TikTok के लिए पेड प्लान चाहिए), क्योंकि TikTok की अपनी API सिर्फ़ ऑडिट हुए ऐप्स को पब्लिक वीडियो पोस्ट करने देती है। Instagram उसकी मुफ़्त ऑफ़िशियल API (`INSTAGRAM_USER_ID`, `INSTAGRAM_ACCESS_TOKEN`) या Upload-Post से पोस्ट हो सकता है। हर नेटवर्क को अपना कैप्शन और वही पब्लिश टाइम मिलता है, और `upload --id N` सिर्फ़ वही दोबारा भेजता है जो फ़ेल हुआ। यह इंटीग्रेशन हर सर्विस की पब्लिश्ड API के मुताबिक़ बना है, लेकिन असली अकाउंट्स पर अभी टेस्ट नहीं हुआ है।
 
 **क्या GPU चाहिए?** नहीं। रेंडरिंग CPU पर ffmpeg से होती है। अगर आपके पास NVIDIA GPU है, तो `clip` का ट्रांसक्रिप्शन उसका इस्तेमाल करता है।
 

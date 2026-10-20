@@ -182,6 +182,20 @@ It also checked Google and YouTube autocomplete and where this repository ranks 
 - [x] H4 Colab notebook, documented REST API with an n8n example, docker-compose.
 - [x] H5 README rewritten around search phrases, with headings people search for.
 
+### J. TikTok and Instagram (added on 20 Oct 2026 after the first QA pass)
+- [x] J1 `PUBLISH_TO=youtube,tiktok,instagram,…`. TikTok and five more networks go through the Upload-Post
+      relay: TikTok's own Content Posting API only lets audited apps publish public videos, and every user
+      would need their own audited app. Instagram can instead use its official API with a resumable upload
+      straight from this computer (Graph API v25.0, available until July 2028).
+- [x] J2 Per-network captions (no `#shorts`, cut to each network's length) and the same publish slot as YouTube
+      (Upload-Post `scheduled_date`; Instagram's API posts at once). Each result goes in `metadata.json`;
+      retries re-send only what failed and never upload to YouTube twice; the MP4 is kept until every
+      destination has it.
+- [x] J3 CLI `--publish-to`, Studio *Publish when done* and per-network chips with *Publish the rest*, MCP
+      `upload_video` results, `doctor` checks, and README, `.env.example` and CHANGELOG notes. Tested against
+      recorded API responses; live endpoints checked with invalid credentials only (Upload-Post answers 401
+      "Invalid API key", Graph v25.0 answers OAuthException 190), because no real accounts were available.
+
 ### I. QA
 - [x] Unit tests for every item, then full CLI, Studio (browser), MCP and offline end-to-end renders of
       every format, layout and clip option. A real local-LLM run where time allows.
@@ -196,7 +210,7 @@ Not doing this round:
 
 | What | Result |
 |---|---|
-| Tests | 174 → 220, all passing, ruff clean, `node --check` clean, wheel and sdist pass `twine check --strict` |
+| Tests | 174 → 232 (with TikTok and Instagram), all passing, ruff clean, `node --check` clean, wheel and sdist pass `twine check --strict` |
 | Clean install | Wheel installed with `[clip,face]` into a fresh Python 3.10 venv; every CLI command run as a new user |
 | Render matrix (installed wheel) | 16/16 rendered: 4 demo formats; 16:9, 1:1 and 4:5; full and split gameplay background; no-effects neon; Hindi; all 5 example scripts. Every file at its expected size, −14.0 LUFS (±0.1), −1.5 dBFS peak |
 | Jump-cut sync | Flash-and-beep test video: after removing ~6 s of pauses, every flash and its beep are within one frame. Speech test: 32.6 s → 17.5 s, "um" and "uh" removed |

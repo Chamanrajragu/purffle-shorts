@@ -583,7 +583,7 @@ def make_clips(studio, src: str, *, count: int = 3, crop: str = "center", upload
                 video, chunks, dur = render_clip(s, source, plan, words, folder, crop,
                                                  (info["width"], info["height"]))
                 out = ffmpeg.probe(video)
-                pick_cover(video, folder / "cover.jpg", folder / "work", total=dur, until=min(3.0, dur * 0.4))
+                cover_at = pick_cover(video, folder / "cover.jpg", folder / "work", total=dur, until=min(3.0, dur * 0.4))
                 (folder / "captions.srt").write_text(srt(chunks), encoding="utf-8")
                 title, description = final_title(script, s), final_description(script, set(), s)
                 meta = {"title": title, "description": description, "tags": script.tags, "category_id": "24",
@@ -591,7 +591,7 @@ def make_clips(studio, src: str, *, count: int = 3, crop: str = "center", upload
                         "clip_start": round(plan.start, 2), "clip_end": round(plan.end, 2),
                         "score": plan.score, "review": [plan.reason] if plan.reason else [],
                         "duration": round(out["duration"], 2), "resolution": f"{s.width}x{s.height}",
-                        "llm": llm.label if llm else "offline", "created_at": now_iso()}
+                        "llm": llm.label if llm else "offline", "created_at": now_iso(), "cover_at": round(cover_at, 2)}
                 (folder / "metadata.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False))
                 rid = studio.history.add_video(
                     subject=src, source="clip", topic=script.topic, style="clip", language=s.language, title=title,

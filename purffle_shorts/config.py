@@ -189,6 +189,13 @@ class Settings:
     playlist_id: str = ""
     localize_metadata: list[str] = field(default_factory=list)  # e.g. es,pt,hi: translated title + description
     upload_captions: bool = False     # also upload captions.srt as a caption track (400 quota units)
+    publish_to: list[str] = field(default_factory=lambda: ["youtube"])  # youtube,tiktok,instagram,...
+    upload_post_api_key: str = ""     # upload-post.com relay: TikTok, Instagram, Facebook, Threads, X, ...
+    upload_post_user: str = ""        # the Upload-Post profile the accounts are connected to
+    tiktok_privacy: str = ""          # PUBLIC_TO_EVERYONE|MUTUAL_FOLLOW_FRIENDS|FOLLOWER_OF_CREATOR|SELF_ONLY
+    instagram_user_id: str = ""       # official Instagram API (instead of the relay for Instagram)
+    instagram_access_token: str = ""
+    instagram_api_version: str = "v25.0"
     client_secrets: str = "credentials.json"
     token_file: str = "token.json"
     keep_videos: bool = False
@@ -352,6 +359,13 @@ class Settings:
             playlist_id=_env("PLAYLIST_ID"),
             localize_metadata=[v for v in _list(_env("LOCALIZE_METADATA")) if _LANG_CODE.match(v)],
             upload_captions=_bool(_env("UPLOAD_CAPTIONS", "false")),
+            publish_to=[v.lower() for v in _list(_env("PUBLISH_TO", "youtube"))] or ["youtube"],
+            upload_post_api_key=_env("UPLOAD_POST_API_KEY"),
+            upload_post_user=_env("UPLOAD_POST_USER"),
+            tiktok_privacy=_env("TIKTOK_PRIVACY").upper(),
+            instagram_user_id=_env("INSTAGRAM_USER_ID"),
+            instagram_access_token=_env("INSTAGRAM_ACCESS_TOKEN"),
+            instagram_api_version=_env("INSTAGRAM_API_VERSION", d.instagram_api_version),
             client_secrets=_env("GOOGLE_CLIENT_SECRETS_FILE", d.client_secrets),
             token_file=_env("YT_TOKEN_FILE", d.token_file),
             keep_videos=_bool(_env("KEEP_VIDEOS", "false")),
@@ -369,6 +383,12 @@ class Settings:
             youtube_api_key=_env("YOUTUBE_API_KEY"),
             notify_webhook=_env("NOTIFY_WEBHOOK"),
         )
+        from .crosspost import PLATFORMS, TIKTOK_PRIVACY
+        bad = [p for p in s.publish_to if p not in PLATFORMS]
+        if bad:
+            raise ConfigError(f"PUBLISH_TO: unknown {', '.join(bad)} (choose from {', '.join(PLATFORMS)})")
+        if s.tiktok_privacy and s.tiktok_privacy not in TIKTOK_PRIVACY:
+            raise ConfigError(f"TIKTOK_PRIVACY={s.tiktok_privacy!r}: choose one of {', '.join(TIKTOK_PRIVACY)}")
         if s.background_layout not in ("full", "split"):
             raise ConfigError(f"BACKGROUND_LAYOUT={s.background_layout!r}: choose full or split")
         if s.script_review not in ("off", "score", "rewrite"):
