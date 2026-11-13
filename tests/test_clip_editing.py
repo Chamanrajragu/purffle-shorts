@@ -46,7 +46,14 @@ def test_retime_moves_words_with_the_cuts_and_drops_fillers():
 def test_select_expression_has_half_a_frame_of_tolerance():
     expr = C.select_expr([(0.0, 1.0), (2.0, 3.0)], 25)
     assert expr == "gte(t,-0.0200)*lt(t,0.9800)+gte(t,1.9800)*lt(t,2.9800)"
-    assert C.select_expr([(0.0, 1.0)], 25, "n/25") == "gte(n/25,-0.0200)*lt(n/25,0.9800)"
+
+
+def test_audio_cut_matches_the_kept_frames():
+    one = C.audio_cut([(0.0, 1.0)], 25)
+    assert one == "[0:a]aresample=48000,atrim=start_sample=0:end_sample=48000,asetpts=PTS-STARTPTS,aformat=channel_layouts=mono[a]"
+    two = C.audio_cut([(0.31, 1.0), (2.0, 3.0)], 30)        # 0.31 s: frame 9 (0.3 s) is within half a frame
+    assert "asplit=2[s0][s1]" in two and "concat=n=2:v=0:a=1" in two
+    assert "start_sample=14400:end_sample=48000" in two and "start_sample=96000:end_sample=144000" in two
 
 
 def test_zoom_alternates_at_sentence_starts_and_not_too_often():
