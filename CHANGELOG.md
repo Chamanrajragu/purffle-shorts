@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.1.0 — 2026-11-14
 
 ### Added
 - **Welcome setup.** When no AI is set up, the Create page offers three free ways to start: a demo with no keys, a local model, or a free Gemini or Groq key. A short checklist shows what is ready.

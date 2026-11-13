@@ -33,5 +33,5 @@ exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name=NAME, console=False, i
 coll = COLLECT(exe, a.binaries, a.datas, name=NAME, upx=False)
 if sys.platform == "darwin":
     app = BUNDLE(coll, name=f"{NAME}.app", icon=icon, bundle_identifier="com.purffle.shorts",
-                 info_plist={"CFBundleShortVersionString": "3.0.0", "NSHighResolutionCapable": True,
+                 info_plist={"CFBundleShortVersionString": "3.1.0", "NSHighResolutionCapable": True,
                              "LSApplicationCategoryType": "public.app-category.video"})

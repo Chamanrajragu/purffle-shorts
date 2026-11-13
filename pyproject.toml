@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "purffle-shorts"
-version = "3.0.0"
+version = "3.1.0"
 description = "Free, open-source AI YouTube Shorts generator and upload autopilot: any LLM writes and self-reviews the script, free neural voices, dialogue, text-message and Reddit-style story formats, podcast-to-Shorts clipping, word-synced captions, ffmpeg render, auto-upload and scheduling, web studio and MCP server."
 readme = "README.md"
 license = "MIT"
