@@ -16,8 +16,8 @@ finds it, starts it and downloads models.
 
 ## Build
 
-PyInstaller can't cross-compile, so build on each OS (or in CI on `windows-latest`, `macos-14`,
-`macos-13` for Intel, and `ubuntu-22.04`):
+PyInstaller can't cross-compile, so build on each OS (or in CI on `windows-latest`, `macos-latest`,
+`macos-15-intel` for Intel, and `ubuntu-22.04`):
 
 ```bash
 python -m pip install -e . pyinstaller
