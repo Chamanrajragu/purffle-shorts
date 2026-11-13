@@ -7,8 +7,8 @@ authors:
 repository-code: "https://github.com/Chamanrajragu/purffle-shorts"
 url: "https://purffle.com/purffle-shorts/"
 license: MIT
-version: 3.0.0
-date-released: "2026-09-29"
+version: 3.1.0
+date-released: "2026-11-14"
 keywords:
   - youtube shorts generator
   - ai video generator

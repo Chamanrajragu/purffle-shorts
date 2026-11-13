@@ -9,13 +9,13 @@
     "source": "github",
     "id": "1268078784"
   },
-  "version": "3.0.0",
+  "version": "3.1.0",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "purffle-shorts",
-      "version": "3.0.0",
+      "version": "3.1.0",
       "runtimeHint": "uvx",
       "transport": { "type": "stdio" },
       "packageArguments": [
