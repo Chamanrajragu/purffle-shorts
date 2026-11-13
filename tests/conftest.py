@@ -39,7 +39,7 @@ def _no_search_suggestions(monkeypatch):
 def settings(tmp_path) -> Settings:
     font = next((f for f in FONT_CANDIDATES if Path(f).exists()), "")
     return Settings(output_dir=str(tmp_path / "out"), data_dir=str(tmp_path / "data"), caption_font=font,
-                    upload=False)
+                    upload=False, check_updates=False)
 
 
 needs_ffmpeg = pytest.mark.skipif(

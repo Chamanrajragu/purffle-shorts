@@ -193,3 +193,13 @@ def test_demo_video_shows_emoji_and_credits_them(settings, monkeypatch, tmp_path
     with Image.open(frame) as im:
         px = im.convert("RGB").getpixel((135, int(480 * 0.56 - 270 * 0.21)))
     assert px[0] > 180 and px[1] < 90 and px[2] < 90
+
+
+def test_caption_drawing_reports_progress(tmp_path):
+    from purffle_shorts import overlays
+    seen: list[float] = []
+    overlays._parallel(lambda job: None, list(range(45)), seen.append)
+    assert seen and seen[-1] == 1.0 and seen == sorted(seen)
+    seen.clear()
+    overlays._parallel(lambda job: None, [1], seen.append)
+    assert seen == [1.0]

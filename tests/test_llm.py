@@ -21,7 +21,7 @@ class FakeSession:
     def __init__(self, resp):
         self.resp, self.calls = resp, []
 
-    def post(self, url, json=None, headers=None, timeout=None):
+    def post(self, url, json=None, headers=None, timeout=None, **kw):
         self.calls.append({"url": url, "json": json, "headers": headers})
         return self.resp
 
@@ -69,7 +69,7 @@ def test_strict_schema_steps_down_to_json_mode_then_prompt(monkeypatch):
     calls = []
 
     class S:
-        def post(self, url, json=None, headers=None, timeout=None):
+        def post(self, url, json=None, headers=None, timeout=None, **kw):
             fmt = (json.get("response_format") or {}).get("type")
             calls.append(fmt)
             if fmt == "json_schema":
@@ -89,7 +89,7 @@ def test_a_plain_bad_request_in_schema_mode_retries_without_it(monkeypatch):
     calls = []
 
     class S:
-        def post(self, url, json=None, headers=None, timeout=None):
+        def post(self, url, json=None, headers=None, timeout=None, **kw):
             fmt = (json.get("response_format") or {}).get("type")
             calls.append(fmt)
             return FakeResp(400, {"error": {"message": "Invalid argument"}}) if fmt == "json_schema" else _ok()
@@ -111,7 +111,7 @@ def test_json_mode_is_dropped_when_unsupported(monkeypatch):
     calls = []
 
     class S:
-        def post(self, url, json=None, headers=None, timeout=None):
+        def post(self, url, json=None, headers=None, timeout=None, **kw):
             calls.append(dict(json))
             if "response_format" in json:
                 return FakeResp(400, {"error": "response_format not supported"})

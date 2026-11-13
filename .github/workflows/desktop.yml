@@ -1,0 +1,72 @@
+name: Desktop apps
+
+# Builds PurffleShorts Studio as a double-click app on every published release (and on demand) for
+# Windows, macOS (Apple silicon and Intel) and Linux, with packaging/purffle-studio.spec. Each build is
+# zipped and attached to the release, so the website's download links can point at
+# https://github.com/Chamanrajragu/purffle-shorts/releases/latest/download/<file>.
+# The apps are unsigned: sign and notarize them before linking them from the website
+# (see packaging/README.md).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: PurffleShorts-Windows.zip
+          - os: macos-14
+            asset: PurffleShorts-macOS-AppleSilicon.zip
+          - os: macos-13
+            asset: PurffleShorts-macOS-Intel.zip
+          - os: ubuntu-22.04
+            asset: PurffleShorts-Linux.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install . pyinstaller
+      - name: Build
+        run: pyinstaller packaging/purffle-studio.spec --noconfirm
+      - name: Zip (macOS keeps the .app's links and permissions)
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent dist/PurffleShorts.app "${{ matrix.asset }}"
+      - name: Zip (Linux)
+        if: runner.os == 'Linux'
+        run: cd dist && zip -qr "../${{ matrix.asset }}" PurffleShorts
+      - name: Zip (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/PurffleShorts -DestinationPath "${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  attach:
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Attach the apps to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" out/*.zip --clobber --repo "${{ github.repository }}"
