@@ -210,3 +210,16 @@ def test_page_has_no_inline_styles_or_scripts(server):
     js = req(port, "GET", "/static/app.js")[2].decode()
     assert not re.search(r"\sstyle=", html) and not re.search(r"<script>(?!\s*</script>)", html)
     assert not re.search(r"""\sstyle=["']""", js)
+
+
+def test_closed_connections_print_no_traceback(capsys):
+    httpd = ST.StudioHTTPServer(("127.0.0.1", 0), ST._handler(ST.StudioServer.__new__(ST.StudioServer), "127.0.0.1"))
+    try:
+        for err, shown in ((ConnectionResetError(54, "reset"), False), (BrokenPipeError(), False), (ValueError("bug"), True)):
+            try:
+                raise err
+            except Exception:
+                httpd.handle_error(None, ("127.0.0.1", 1))
+            assert ("Traceback" in capsys.readouterr().err) is shown, err
+    finally:
+        httpd.server_close()

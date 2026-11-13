@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- The Studio no longer prints a traceback in the terminal when the browser closes a connection early (a reload, or leaving a page while it loads).
+
 ## 3.1.0 — 2026-11-14
 
 ### Added

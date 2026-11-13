@@ -984,9 +984,19 @@ def _handler(app: StudioServer, bound_host: str, password: str | None = None):
     return H
 
 
+class StudioHTTPServer(ThreadingHTTPServer):
+    """Leaves out the traceback when the browser closes a connection early (a reload, or leaving a page
+    while it loads): that is normal, not an error."""
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def serve(settings: Settings, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> None:
     app = StudioServer(settings)
-    httpd = ThreadingHTTPServer((host, port), _handler(app, host))
+    httpd = StudioHTTPServer((host, port), _handler(app, host))
     url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{port}/"
     log.info("PurffleShorts Studio running at %s  (Ctrl+C to stop)", url)
     if host not in LOCAL_HOSTS and not os.getenv("STUDIO_PASSWORD"):
