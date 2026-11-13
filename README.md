@@ -840,7 +840,7 @@ Part of the **Purffle** ecosystem — PurffleTools · PurffleAI · [Purffle.com]
 
 | Tool | What it does |
 |------|--------------|
-| 🔄 **[Claude Multi](https://github.com/Chamanrajragu/claude-multi)** | Run Claude Code with multiple accounts — auto-switch on the 5-hour limit |
+| 🔄 **[Claude Multi](https://purffle.com/claude-multi/)** | Run Claude Code with multiple accounts — auto-switch on the 5-hour limit · paid app, from $5/month |
 | 📐 **[Purffle Chartwright](https://purffle.com/purffle-chartwright/)** | Desktop chart analysis where the AI cannot invent a price |
 | 🎵 **[PurffleGrab](https://github.com/Chamanrajragu/purffle-grab)** | Free Spotify & YouTube downloader — MP3, MP4, 4K |
 | 🎥 **[PurffleVision](https://github.com/Chamanrajragu/purffle-vision)** | AI video creation — any topic to a finished video |
