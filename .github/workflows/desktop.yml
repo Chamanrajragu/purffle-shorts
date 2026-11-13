@@ -22,9 +22,9 @@ jobs:
         include:
           - os: windows-latest
             asset: PurffleShorts-Windows.zip
-          - os: macos-14
+          - os: macos-latest
             asset: PurffleShorts-macOS-AppleSilicon.zip
-          - os: macos-13
+          - os: macos-15-intel
             asset: PurffleShorts-macOS-Intel.zip
           - os: ubuntu-22.04
             asset: PurffleShorts-Linux.zip
