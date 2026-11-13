@@ -144,6 +144,9 @@ def final_title(script: Script, settings: Settings | None = None, text: str | No
     return f"{t} #shorts" if len(t) + 8 <= 100 else truncate_words(t, 100)
 
 
+CREDIT_LINE = "Made with PurffleShorts: https://purffle.com/purffle-shorts/"
+
+
 def final_description(script: Script, credits: set[str], settings: Settings, text: str | None = None,
                       extra: list[str] | None = None) -> str:
     body = (script.description if text is None else text).strip()
@@ -153,6 +156,8 @@ def final_description(script: Script, credits: set[str], settings: Settings, tex
     if settings.credit_footage and credits:
         parts.append("Footage: " + ", ".join(sorted(credits)))
     parts.extend(extra or [])
+    if settings.credit_line:
+        parts.append(CREDIT_LINE)
     return "\n\n".join(p for p in parts if p)
 
 
@@ -449,7 +454,8 @@ class Studio:
                     emoji.append((tm.start + 0.05, min(tm.end, tm.start + 1.65), sc.emoji))
             plan = build_overlays(s, on_screen, total, script.hook_text, work, labels=labels, chat=messages,
                                   contact=script.speaker_name("A"), card=card, card_until=card_until,
-                                  emphasis={k for sc in script.scenes for k in sc.emphasis}, emoji=emoji)
+                                  emphasis={k for sc in script.scenes for k in sc.emphasis}, emoji=emoji,
+                                  progress=lambda f: self._sub(f, f"drawing captions {int(f * 100)}%"))
 
             self._step("render", f"{s.width}x{s.height}")
             video = folder / ("short.mp4" if s.vertical else "video.mp4")

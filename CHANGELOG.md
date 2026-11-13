@@ -3,6 +3,31 @@
 ## Unreleased
 
 ### Added
+- **Welcome setup.** When no AI is set up, the Create page offers three free ways to start: a demo with no keys, a local model, or a free Gemini or Groq key. A short checklist shows what is ready.
+- **Batch, presets and autopilot in the Studio.**
+  - Paste many topics, one per line, to queue a video for each.
+  - Save the Create form's look, voice and format as a named preset and apply it in one click.
+  - Autopilot makes a video every few hours from the idea queue and plans new ideas when it runs low. It is off until you switch it on.
+- **Library tools and Post kit.**
+  - Sort by newest, best score or most views, filter by format, and select several videos to publish or delete together.
+  - Copy buttons for the title, description and hashtags.
+  - `/files/<id>/post.txt`, and `/files/<id>/kit.zip` with the video, cover, captions and post text.
+- **Command palette** (Ctrl/⌘ K): type to jump to any page, settings section, video or action.
+- **Notifications and tab progress.** An opt-in system notification when a video, clip or upload finishes while the Studio tab is in the background. The tab title shows the running job's progress.
+- **Your numbers** on the Channel page: minutes of video, editing hours saved (counted at 45 minutes a video) and formats used.
+- **Update check.** Once a day the Studio asks GitHub for the newest release and shows a link when one is out. The request sends no personal data; `CHECK_UPDATES=false` turns it off.
+- **Credit line** (`CREDIT_LINE=true`, off by default): adds "Made with PurffleShorts" and a link to descriptions. After your first video, the Studio thanks you once and links to a GitHub star and a share.
+- **App icons and desktop builds in CI.** `packaging/make_icons.py` draws the Windows, macOS and Linux icons from the logo. `.github/workflows/desktop.yml` builds the Windows, macOS (Apple silicon and Intel) and Linux apps on every release and attaches them as zips.
+- **Desktop app launcher** (`purffle-studio`, `purffle_shorts/desktop.py`) and a PyInstaller recipe in `packaging/` for Windows, macOS and Linux builds. A double-clicked app keeps its settings and videos in `Documents/PurffleShorts` (or `PURFFLE_HOME`), opens the running Studio instead of starting a second one, moves to a free port when 8765 is taken, and logs to `logs/desktop.log` when it has no console.
+- **Studio: Local AI.**
+  - Model downloads and speed tests run on their own lanes beside the video queue. A speed test no longer waits behind a download.
+  - Local jobs show their log and a finishing message, for example "0.8 tokens/s, a script in ~30 min".
+- **Studio: Fix links.**
+  - Failed jobs and failing System checks link to the page where the problem is fixed, such as Local AI or Settings → Publishing.
+  - Settings pages open at a section with `#settings/<group>`.
+- **Studio: keyboard shortcuts.** 1–9 open the pages in sidebar order, `/` jumps to the search box, Esc closes the video drawer.
+- **Studio: progress.** Captions report progress while they are drawn. Jobs that have not reported a percentage yet show a moving bar instead of looking stuck at 0%.
+- **"Learn from my stats"** can be switched on in Settings → Publishing.
 - **A new Studio design and logo.**
   - Warm paper-and-ink colours with one signal colour, the red of a camera's tally light, in a light theme, a dark "control room" theme, or the system's choice (switch in the sidebar).
   - Schibsted Grotesk and JetBrains Mono, bundled as Latin subsets under the OFL, so nothing loads from a CDN.
@@ -43,8 +68,15 @@
 - `STUDIO_PASSWORD` (HTTP Basic) for a Studio that runs on a server.
 
 ### Fixed
+- **Clips on ffmpeg 8**: jump-cut clips kept their full audio under the shortened picture with Ubuntu's ffmpeg 8.0, whose `aselect` filter lets every frame through. The sound is now cut with `atrim` on the exact sample where each kept frame starts, so it stays in sync on every ffmpeg version.
 - Transcription with faster-whisper 1.2.1 failed under a newer PyAV ("unexpected keyword argument 'metadata_errors'"). Audio is now decoded by PurffleShorts' own ffmpeg and passed to Whisper as samples.
 - A Studio API request could upload even with `UPLOAD=false` in `.env`; that setting is now a hard stop for API jobs too.
+- Studio:
+  - Quickly switching pages could leave an older Local AI or Settings page drawn over the new one.
+  - Download jobs showed the video stage timeline.
+  - The idea planner showed 0% with no stage.
+  - `/favicon.ico` returned 404.
+  - Setup errors, such as clipping without a transcriber, wrote a full traceback to the log instead of one line.
 
 ### Changed
 - A Studio page whose server is stopped retries less and less often (up to every 30 s) instead of every 1.5 s, and after a server restart an action explains that the page needs a reload instead of showing "bad token".

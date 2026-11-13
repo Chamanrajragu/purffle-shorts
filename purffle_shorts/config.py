@@ -200,6 +200,8 @@ class Settings:
     token_file: str = "token.json"
     keep_videos: bool = False
     credit_footage: bool = True
+    credit_line: bool = False         # end descriptions with "Made with PurffleShorts" and the link
+    check_updates: bool = True        # the Studio asks GitHub once a day whether a newer release is out
     youtube_api_key: str = ""         # optional, only for reading view counts (learn_from_stats)
     notify_webhook: str = ""          # Discord / Slack / any URL: a message per rendered, uploaded or failed video
 
@@ -370,6 +372,8 @@ class Settings:
             token_file=_env("YT_TOKEN_FILE", d.token_file),
             keep_videos=_bool(_env("KEEP_VIDEOS", "false")),
             credit_footage=_bool(_env("CREDIT_FOOTAGE", "true")),
+            credit_line=_bool(_env("CREDIT_LINE", "false")),
+            check_updates=_bool(_env("CHECK_UPDATES", "true")),
             batch_size=max(1, _int("BATCH_SIZE", d.batch_size, "SHORTS_BATCH_SIZE")),
             batch_delay=max(0, _int("BATCH_DELAY", d.batch_delay, "SHORTS_BATCH_DELAY")),
             workers=max(1, _int("WORKERS", d.workers)),

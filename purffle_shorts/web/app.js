@@ -63,7 +63,7 @@ const MULTI = new Set(["dialogue", "chat"]);
 const STAGES = [["topic", "Topic"], ["script", "Script"], ["review", "Review"], ["voice", "Voice"], ["footage", "Footage"],
   ["captions", "Captions"], ["render", "Render"], ["check", "Check"], ["upload", "Upload"]];
 const STATUS_CHIP = { uploaded: "ok", scheduled: "blue", rendered: "accent", queued: "", failed: "bad" };
-const VIEW_NO = { create: "01", library: "02", queue: "03", ideas: "04", clip: "05", channel: "06", system: "07" };
+const VIEW_NO = { create: "01", library: "02", queue: "03", ideas: "04", clip: "05", channel: "06", system: "07", local: "08", settings: "09" };
 // The page heading: a numbered eyebrow, the title and one line of what the page is for.
 function head(view, title, text, aside = "") {
   return `<div class="page-head"><div><p class="eyebrow"><b>${VIEW_NO[view] || "00"}</b>Studio</p><h1>${title}</h1>${text ? `<p>${text}</p>` : ""}</div>${aside}</div>`;
@@ -71,7 +71,7 @@ function head(view, title, text, aside = "") {
 // A sheet's heading: its number in the brief, the title, and anything that sits on the right.
 const sh = (n, title, aside = "") => `<header class="sheet-h"><span class="n">${n}</span><h2>${title}</h2>${aside ? `<span class="aside">${aside}</span>` : ""}</header>`;
 const empty = (k, title, text) => `<div class="empty" data-k="${k}"><b>${title}</b>${text}</div>`;
-const KIND_ICON = { make: I.film, draft: I.pen, clip: I.scissors, plan: I.bulb, upload: I.upload, stats: I.chart };
+const KIND_ICON = { make: I.film, draft: I.pen, clip: I.scissors, plan: I.bulb, upload: I.upload, stats: I.chart, pull: I.dl, prefetch: I.dl, bench: I.spark };
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem("purffle." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
@@ -97,7 +97,7 @@ async function post(url, body) {
 const S = {
   info: null, options: null, jobs: [], view: "create",
   form: store.get("form", {}), draft: store.get("draft", null), createJob: store.get("createJob", null),
-  lib: { status: "", q: "" }, seen: new Map(), voices: {}, live: false,
+  lib: Object.assign({ status: "", q: "", sort: "new", style: "" }, store.get("lib") || {}, { picking: false, picked: new Set() }), seen: new Map(), voices: {}, live: false,
 };
 
 // ------------------------------------------------------------------ helpers
@@ -151,6 +151,84 @@ document.addEventListener("click", e => {
   if (b) { store.set("theme", b.dataset.themeSet); applyTheme(b.dataset.themeSet); }
 });
 
+// ------------------------------------------------------------------ command palette (Ctrl/⌘ K)
+const palette = {
+  items: [], shown: [], at: 0, videos: null,
+  init() {
+    const el = document.createElement("div");
+    el.className = "palette"; el.id = "palette"; el.hidden = true;
+    el.innerHTML = `<div class="pal-bg" data-pclose></div><div class="pal-box" role="dialog" aria-modal="true" aria-label="Go to anything">
+      <input id="pal-q" type="text" placeholder="Go to a page, a video or an action…" autocomplete="off" spellcheck="false" role="combobox" aria-controls="pal-list" aria-expanded="true">
+      <ul id="pal-list" role="listbox"></ul><p class="pal-foot"><kbd>↑</kbd><kbd>↓</kbd> to move · <kbd>Enter</kbd> to open · <kbd>Esc</kbd> to close</p></div>`;
+    document.body.append(el);
+    el.addEventListener("click", e => {
+      if (e.target.closest("[data-pclose]")) return this.close();
+      const li = e.target.closest("[data-pi]");
+      if (li) this.run(this.shown[+li.dataset.pi]);
+    });
+    el.addEventListener("mousemove", e => { const li = e.target.closest("[data-pi]"); if (li && +li.dataset.pi !== this.at) { this.at = +li.dataset.pi; this.mark(); } });
+    const q = $("#pal-q");
+    q.addEventListener("input", () => { this.at = 0; this.draw(); });
+    q.addEventListener("keydown", e => {
+      if (e.key === "Escape") { e.preventDefault(); this.close(); }
+      else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const n = this.shown.length;
+        if (n) { this.at = (this.at + (e.key === "ArrowDown" ? 1 : n - 1)) % n; this.mark(); }
+      } else if (e.key === "Enter") { e.preventDefault(); if (this.shown[this.at]) this.run(this.shown[this.at]); }
+    });
+  },
+  build() {
+    const go = h => () => { location.hash = h; };
+    const pages = $$("#nav a").map(a => ({ k: "Page", t: a.querySelector("span:not(.ix)").textContent, run: go(a.getAttribute("href")) }));
+    const groups = [["ai", "AI writer"], ["voice", "Voice"], ["footage", "Footage"], ["channel", "Channel"], ["video", "Video"], ["publishing", "Publishing"], ["app", "App"]]
+      .map(([id, t]) => ({ k: "Settings", t: `${t} settings`, run: go(`#settings/${id}`) }));
+    const acts = [
+      { k: "Action", t: "New video from a topic", run: () => { S.form.mode = "topic"; saveForm(); location.hash = "#create"; route(); setTimeout(() => $("[data-f=topic]")?.focus(), 50); } },
+      { k: "Action", t: "Make many videos at once (one topic per line)", run: () => { S.form.mode = "many"; saveForm(); location.hash = "#create"; route(); } },
+      { k: "Action", t: "Turn a web page into a video", run: () => { S.form.mode = "url"; saveForm(); location.hash = "#create"; route(); } },
+      { k: "Action", t: "Clip a long video into Shorts", run: go("#clip") },
+      { k: "Action", t: "Plan new ideas", run: go("#ideas") },
+      { k: "Action", t: "Autopilot: make videos on a schedule", run: go("#queue") },
+      { k: "Action", t: "Select videos to publish or delete", run: () => { S.lib.picking = true; location.hash = "#library"; if (S.view === "library") drawLibrary(); } },
+      { k: "Action", t: "Download a free local AI model", run: go("#local") },
+      { k: "Action", t: notifyOn() ? "Turn off notifications" : "Notify me when a video is done", run: () => setNotify(!notifyOn()) },
+      ...["light", "dark", "auto"].map(t => ({ k: "Theme", t: `Theme: ${t === "auto" ? "match the system" : t}`, run: () => { store.set("theme", t); applyTheme(t); } })),
+      { k: "Help", t: "Star PurffleShorts on GitHub", run: () => window.open("https://github.com/Chamanrajragu/purffle-shorts", "_blank", "noopener") },
+      { k: "Help", t: "Report a problem or ask for a feature", run: () => window.open("https://github.com/Chamanrajragu/purffle-shorts/issues", "_blank", "noopener") },
+    ];
+    const vids = (this.videos || []).map(v => ({ k: `#${String(v.id).padStart(3, "0")}`, t: shortTitle(v.title) || v.title || "Untitled", run: () => openVideo(v.id) }));
+    this.items = [...acts.slice(0, 1), ...pages, ...acts.slice(1), ...groups, ...vids];
+  },
+  async open() {
+    $("#palette").hidden = false;
+    const q = $("#pal-q");
+    q.value = ""; this.at = 0;
+    this.build(); this.draw(); q.focus();
+    try { this.videos = (await get("/api/videos?status=&q=")).slice(0, 300); this.build(); if (!$("#palette").hidden) this.draw(); } catch { /* pages and actions still work */ }
+  },
+  close() { $("#palette").hidden = true; },
+  toggle() { $("#palette").hidden ? this.open() : this.close(); },
+  run(it) { this.close(); it.run(); },
+  draw() {
+    const words = $("#pal-q").value.toLowerCase().split(/\s+/).filter(Boolean);
+    const score = it => {
+      const t = (it.t + " " + it.k).toLowerCase();
+      if (!words.every(w => t.includes(w))) return -1;
+      return words.reduce((n, w) => n + (it.t.toLowerCase().startsWith(w) ? 3 : t.includes(" " + w) ? 2 : 1), 0) + (it.k === "Page" ? 1 : 0);
+    };
+    this.shown = (words.length ? this.items.map(it => [score(it), it]).filter(x => x[0] >= 0).sort((a, b) => b[0] - a[0]).map(x => x[1])
+      : this.items.filter(it => !it.k.startsWith("#"))).slice(0, 40);
+    if (this.at >= this.shown.length) this.at = 0;
+    $("#pal-list").innerHTML = this.shown.length ? this.shown.map((it, n) => `<li role="option" data-pi="${n}" aria-selected="${n === this.at}"><span>${esc(it.t)}</span><small>${esc(it.k)}</small></li>`).join("")
+      : `<li class="none">Nothing matches. Try “video”, “settings” or a title.</li>`;
+  },
+  mark() {
+    $$("#pal-list [data-pi]").forEach(li => li.setAttribute("aria-selected", String(+li.dataset.pi === this.at)));
+    $(`#pal-list [data-pi="${this.at}"]`)?.scrollIntoView({ block: "nearest" });
+  },
+};
+
 // ------------------------------------------------------------------ boot & routing
 async function boot() {
   try {
@@ -171,11 +249,21 @@ async function boot() {
   if (!i.llm_ok) S.form.offline = true;
   status();
   window.addEventListener("hashchange", route);
+  $$("#nav a").forEach((a, n) => { a.title = `${a.querySelector("span:not(.ix)").textContent} (press ${n + 1})`; });
   document.addEventListener("keydown", e => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); return palette.toggle(); }
+    if (!$("#palette").hidden) return;  // the palette handles its own keys
     if (e.key === "Escape") closeDrawer();
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && S.view === "create") startMake();
+    // 1–9 open the pages in sidebar order, "/" jumps to the search box; never while typing
+    const typing = e.target.closest?.("input, textarea, select, [contenteditable]");
+    if (typing || e.metaKey || e.ctrlKey || e.altKey || !$("#drawer").hidden) return;
+    const page = Object.keys(VIEWS)[Number(e.key) - 1];
+    if (/^[1-9]$/.test(e.key) && page) { e.preventDefault(); location.hash = `#${page}`; }
+    if (e.key === "/") { const q = $("#main input[type=search]"); if (q) { e.preventDefault(); q.focus(); } }
   });
   $("#drawer").addEventListener("click", e => { if (e.target.closest("[data-close]")) closeDrawer(); });
+  palette.init();
   route();
   tick();
   connectEvents();
@@ -186,14 +274,18 @@ async function boot() {
 function status() {
   const i = S.info;
   $("#status").innerHTML = [
-    ["Model", i.llm_ok ? i.llm : "demo only", !i.llm_ok], ["Voice", i.tts], ["Publish", i.upload ? `${Math.max(0, i.quota_left)} of ${i.daily_limit} today` : "off", !i.upload],
+    ["Model", i.llm_ok ? i.llm : "demo only", !i.llm_ok], ["Voice", i.tts], ["Publish", i.upload ? `${Math.max(0, i.quota_left)} left today` : "off", !i.upload],
   ].map(([k, v, off]) => `<dt>${k}</dt><dd class="${off ? "off" : ""}" title="${esc(v)}">${esc(v)}</dd>`).join("");
+  let up = $("#update");
+  if (!up) { up = document.createElement("a"); up.id = "update"; up.className = "update"; up.target = "_blank"; up.rel = "noopener"; $("#status").after(up); }
+  up.hidden = !i.update;
+  if (i.update) { up.href = i.update.url; up.innerHTML = `${I.spark}<span>Version ${esc(i.update.version)} is out<small>See what's new and download</small></span>`; }
   const ib = $("#ibadge");
   ib.hidden = !i.ideas;
   ib.textContent = i.ideas;
 }
 
-const VIEWS = { create: viewCreate, library: viewLibrary, queue: viewQueue, ideas: viewIdeas, clip: viewClip, channel: viewChannel, system: viewSystem };
+const VIEWS = { create: viewCreate, library: viewLibrary, queue: viewQueue, ideas: viewIdeas, clip: viewClip, channel: viewChannel, system: viewSystem, local: viewLocal, settings: viewSettings };
 function route() {
   const v = (location.hash || "#create").slice(1).split("/")[0];
   S.view = VIEWS[v] ? v : "create";
@@ -255,8 +347,32 @@ function applyJobs(jobs) {
   // A draft that finished while this page was closed or reloading still belongs in the editor.
   const cj = currentCreateJob();
   if (cj && cj.kind === "draft" && cj.status === "done" && !S.createJob.loaded) finished(cj);
+  const run = jobs.find(j => j.status === "running" && j.kind !== "pull" && j.kind !== "prefetch");
+  document.title = run ? `${Math.round(run.pct || 0)}% · ${run.label} · PurffleShorts` : active ? `(${active}) PurffleShorts Studio` : "PurffleShorts Studio";
   if (S.view === "queue") drawJobs();
   if (S.view === "create") drawLive();
+  if (S.view === "local") drawLocalJobs();
+}
+
+// A system notification when a video, clip or upload ends, only if the user turned it on and the tab is hidden.
+const notifyOn = () => store.get("notify") && "Notification" in window && Notification.permission === "granted";
+function notify(j) {
+  if (!notifyOn() || !document.hidden || !["make", "clip", "upload"].includes(j.kind)) return;
+  const r = j.result || {}, ok = j.status === "done";
+  try {
+    const n = new Notification(ok ? (j.kind === "upload" ? "Upload finished" : "Your video is ready") : "A job failed",
+      { body: (r.title || j.label || "").slice(0, 120), icon: "/static/icon.png", tag: "purffle-" + j.id });
+    n.onclick = () => { window.focus(); location.hash = j.kind === "upload" ? "#library" : "#queue"; n.close(); };
+  } catch { /* some browsers only allow notifications from a service worker */ }
+}
+async function setNotify(on) {
+  if (!on) { store.set("notify", 0); toast("Notifications are off.", "info"); return false; }
+  if (!("Notification" in window)) { toast("This browser can't show notifications.", "bad"); return false; }
+  const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+  if (perm !== "granted") { store.set("notify", 0); toast("Notifications are blocked for this page in your browser's settings.", "bad"); return false; }
+  store.set("notify", 1);
+  toast("You'll get a notification when a video is done while the Studio is in the background.", "ok");
+  return true;
 }
 
 function finished(j) {
@@ -271,16 +387,31 @@ function finished(j) {
     if (S.view === "create") drawSide();
     return;
   }
+  notify(j);
   if (j.status === "failed") {
     toast(`<b>${esc(j.label)}</b><br>${esc((r.error || j.message || "failed").slice(0, 220))}`, "bad", 9000);
   } else if (j.kind === "make" || j.kind === "clip") {
     const id = r.id || (r.clips && r.clips.find(c => c.ok) || {}).id;
     toast(`<b>${esc(r.title || j.label)}</b> is ready. ${id ? `<a href="#library" data-open="${id}">Watch it</a>` : ""}`, "ok", 9000);
+    if (j.kind === "make" && !store.get("thanked")) {
+      store.set("thanked", 1);
+      const share = "https://x.com/intent/post?text=" + encodeURIComponent("I make Shorts for free with PurffleShorts, an open-source video maker: https://purffle.com/purffle-shorts/");
+      setTimeout(() => toast(`<b>Your first video is done!</b><br>PurffleShorts is free and open source. If it saved you time, a star or a share helps other creators find it.<br>
+        <a href="https://github.com/Chamanrajragu/purffle-shorts" target="_blank" rel="noopener">Star on GitHub</a> · <a href="${share}" target="_blank" rel="noopener">Share</a>${S.info.credit_line ? "" : ` · <a href="#settings/channel">Credit it in descriptions</a>`}`, "info", 20000), 1500);
+    }
   } else if (j.kind === "plan") {
     toast(`${r.ideas} new idea(s) in the queue.`, "ok");
     if (S.view === "ideas") viewIdeas();
   } else if (j.kind === "upload") {
     toast(`Upload: ${esc(r.status)}`, r.status === "failed" ? "bad" : "ok");
+  } else if (j.kind === "pull" || j.kind === "prefetch") {
+    toast(`${esc(j.label.replace(/^Download /, ""))} is downloaded.`, "ok");
+    if (S.view === "local") viewLocal();
+    get("/api/options").then(o => { S.options = o; }).catch(() => {});
+  } else if (j.kind === "bench") {
+    const b = store.get("bench", {}); b[r.model] = r; store.set("bench", b);
+    toast(`<b>${esc(r.model)}</b>: ${r.tokens_per_second} tokens/s — a script takes about ${r.script_minutes ?? "?"} min.`, "ok", 9000);
+    if (S.view === "local") viewLocal();
   } else if (j.kind === "stats") {
     toast(`Stats refreshed for ${r.updated} video(s).`, "ok");
     if (S.view === "channel") viewChannel();
@@ -288,6 +419,7 @@ function finished(j) {
   get("/api/info").then(i => { S.info = i; status(); }).catch(() => {});
   if (S.view === "library") drawLibrary();
   if (S.view === "create") drawSide();
+  if (S.view === "queue") drawAutopilot();
 }
 
 document.addEventListener("click", e => {
@@ -312,8 +444,30 @@ function payload(extra = {}) {
   return Object.assign(p, extra);
 }
 
+function batchTopics() {  // same rule as the server: one per line, case-insensitive duplicates dropped, up to 50
+  const seen = new Set();
+  return (S.form.topics || "").split("\n").map(t => t.trim().replace(/\s+/g, " "))
+    .filter(t => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase())).slice(0, 50);
+}
+function makeLabel() {
+  if (S.form.mode !== "many") return "Create video";
+  const n = batchTopics().length;
+  return n ? `Create ${n} video${n === 1 ? "" : "s"}` : "Create videos";
+}
+async function startBatch() {
+  const topics = batchTopics();
+  if (!topics.length) return toast("Write at least one topic, one per line.", "bad");
+  try {
+    const { jobs } = await post("/api/batch", { ...payload(), topics });
+    toast(`${jobs.length} video${jobs.length === 1 ? "" : "s"} queued. <a href="#queue">Open the Queue</a>`, "ok");
+    jobs.forEach(id => S.seen.set(id, "queued"));
+    tick();
+  } catch (e) { toast(esc(e.message), "bad"); }
+}
+
 async function startMake(extra = {}) {
   const f = S.form;
+  if (f.mode === "many" && !extra.script) return startBatch();
   if (f.mode === "url" && !f.url.trim() && !extra.script) return toast("Paste the address of a web page first.", "bad");
   try {
     const { job } = await post("/api/make", payload(extra));
@@ -343,10 +497,34 @@ function viewCreate() {
   const i = S.info, f = S.form;
   $("#main").innerHTML = `
   ${head("create", "New Short", "Write the brief, then draft the script to read and edit it, or go straight to the render.")}
-  ${i.llm_ok ? "" : `<div class="banner">${I.info}<p><b>No AI model is set up yet.</b> Demo mode renders a sample video with no keys. Add one API key (or run Ollama) in <span class="mono">.env</span> to write real scripts. <a href="#system">Check the setup</a></p></div>`}
+  ${i.llm_ok ? "" : welcome(i)}
   <div class="create"><div id="form"></div><div class="sticky" id="side"></div></div>`;
   drawForm();
   drawSide();
+  const w = $("#welcome [data-way=demo]");
+  if (w) w.onclick = () => {
+    S.form.offline = true; S.form.mode = "topic"; saveForm(); drawForm(); drawSide();
+    const t = $("[data-f=topic]");
+    if (t) { t.focus(); if (!t.value) { t.value = "Why octopuses have three hearts"; t.dispatchEvent(new Event("input", { bubbles: true })); } }
+    toast("Demo mode is on. Press Create video to watch one being made.", "info");
+  };
+}
+
+function welcome(i) {
+  const step = (ok, t, d) => `<li class="${ok ? "ok" : ""}">${ok ? I.check : `<span class="dot"></span>`}<span><b>${t}</b><small>${d}</small></span></li>`;
+  return `<section class="card welcome" id="welcome">
+    <div class="w-head"><h2>Welcome to PurffleShorts</h2><p>Pick one way to give the Studio a writer. All three are free.</p></div>
+    <div class="w-ways">
+      <button class="way" type="button" data-way="demo"><b>Try a demo now</b><span>No keys, no sign-up: a sample script with generated backgrounds, so you can see a whole video being made.</span><em>Start in seconds</em></button>
+      <a class="way" href="#local"><b>Free AI on this computer</b><span>Download a local model with one click. Private, offline, no account. Best with 8 GB of memory or more.</span><em>Set up local AI</em></a>
+      <div class="way"><b>Free cloud key</b><span>Paste a free key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google Gemini</a> or <a href="https://console.groq.com/keys" target="_blank" rel="noopener">Groq</a>: fast, and it works on any computer.</span><a class="go" href="#settings/ai">Add a key</a></div>
+    </div>
+    <ol class="w-steps">
+      ${step(i.llm_ok, "A writer", "a local model or an API key")}
+      ${step(true, "A voice", `${esc(i.tts)} is ready, nothing to set up`)}
+      ${step(i.upload, "Publishing (optional)", i.upload ? "on: connect YouTube in Settings" : "off: videos are saved on this computer")}
+    </ol>
+  </section>`;
 }
 
 function drawForm() {
@@ -355,10 +533,12 @@ function drawForm() {
   const provs = [["", "Default (.env)"], ...o.providers.map(p => [p.name, `${p.label}${p.ready ? "" : " — no key"}`])];
   const multi = MULTI.has(f.style);
   $("#form").innerHTML = `
+  <div class="presets" id="presets"></div>
   <section class="card">
     ${sh("01", "What is it about?")}
-    <div class="src-tabs">${seg("mode", [["topic", "Topic"], ["url", "Web page"], ["queue", "Idea queue"], ["auto", "Surprise me"]], f.mode)}</div>
+    <div class="src-tabs">${seg("mode", [["topic", "Topic"], ["many", "Many topics"], ["url", "Web page"], ["queue", "Idea queue"], ["auto", "Surprise me"]], f.mode)}</div>
     ${f.mode === "topic" ? `<div class="field big"><input type="text" data-f="topic" value="${esc(f.topic)}" placeholder="Why octopuses have three hearts" aria-label="Topic"><p class="hint">Broad or specific: the AI finds the surprising angle, using what people actually search for.</p></div>`
+    : f.mode === "many" ? `<div class="field"><textarea data-f="topics" rows="6" placeholder="One topic per line, e.g.&#10;Why octopuses have three hearts&#10;The loudest sound ever recorded&#10;How bees count" aria-label="Topics, one per line">${esc(f.topics || "")}</textarea><p class="hint">A video for each line (up to 50), all with the settings below. They wait in the <a href="#queue">Queue</a> and run one after another.</p></div>`
     : f.mode === "url" ? `<div class="field big"><input type="url" data-f="url" value="${esc(f.url)}" placeholder="https://… an article, a blog post or a Reddit post" aria-label="Web page"><p class="hint">The page's text becomes the script's source material.</p></div>`
     : f.mode === "queue" ? `<p class="hint">Uses the oldest idea in your queue (${i_ideas()} waiting). Plan more on the <a href="#ideas">Ideas</a> page.</p>`
     : `<p class="hint">Picks a fresh topic from your niches and topic sources in .env.</p>`}
@@ -412,7 +592,7 @@ function drawForm() {
     ${sh("05", "Model and publishing")}
     <div class="grid2">
       <div class="field"><label>AI model provider</label>${sel("provider", provs, f.provider)}</div>
-      <div class="field"><label>Model</label><input type="text" data-f="model" value="${esc(f.model)}" placeholder="provider default"></div>
+      <div class="field"><label>Model</label><input type="text" data-f="model" list="models" value="${esc(f.model)}" placeholder="${esc(o.model || "provider default")}"><datalist id="models">${(o.ollama_models || []).map(m => `<option value="${esc(m)}">`).join("")}</datalist></div>
     </div>
     <div class="field"><label>Script Doctor</label>${seg("review", [["off", "Off"], ["score", "Score only"], ["rewrite", "Score & rewrite"]], f.review)}<p class="hint">A second AI pass grades the hook and pacing, then rewrites weak lines.</p></div>
     <div class="field"><label>Also make it in</label><input type="text" data-f="also_langs" value="${esc(f.also_langs)}" placeholder="e.g. es, hi, pt — translated copies, same footage"></div>
@@ -422,12 +602,13 @@ function drawForm() {
     </div>
   </section>
 
-  <div class="go-row">
-    <button class="btn" id="draft-btn" type="button">${I.pen}Draft the script first</button>
-    <button class="btn rec" id="make-btn" type="button"><span class="dot"></span>Create video<kbd>${/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl"} ↵</kbd></button>
+  <div class="go-row${f.mode === "many" ? " one" : ""}">
+    ${f.mode === "many" ? "" : `<button class="btn" id="draft-btn" type="button">${I.pen}Draft the script first</button>`}
+    <button class="btn rec" id="make-btn" type="button"><span class="dot"></span><span id="make-label">${makeLabel()}</span><kbd>${/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl"} ↵</kbd></button>
   </div>`;
   bindForm();
   loadVoices();
+  drawPresets();
 }
 const i_ideas = () => S.info.ideas || 0;
 
@@ -457,13 +638,14 @@ function bindForm() {
     } else if (el.dataset.f) {
       S.form[el.dataset.f] = el.type === "checkbox" ? el.checked : el.type === "range" ? +el.value : el.value;
       if (el.dataset.f === "duration") $("#dur-out").textContent = el.value + "s";
+      if (el.dataset.f === "topics") $("#make-label").textContent = makeLabel();
       if (el.dataset.f === "language" || el.dataset.f === "tts") loadVoices();
       if (el.dataset.f === "background") { saveForm(); return drawForm(); }
     }
     saveForm();
   });
   $("#make-btn").onclick = () => startMake();
-  $("#draft-btn").onclick = startDraft;
+  if ($("#draft-btn")) $("#draft-btn").onclick = startDraft;
 }
 
 async function loadVoices() {
@@ -476,6 +658,51 @@ async function loadVoices() {
   if (S.form.language === lang && $("#voices")) {
     $("#voices").innerHTML = S.voices[lang].map(v => `<option value="${esc(v.name)}">${esc(v.gender)} · ${esc(v.locale)}</option>`).join("");
   }
+}
+
+// Presets: the Create form's look, voice and format saved under a name (kept by the server, see presets.py)
+const PRESET_KEYS = ["style", "language", "duration", "aspect", "caption_style", "caption_position", "grade", "transition",
+  "tts", "voice", "voice_b", "provider", "model", "review", "also_langs", "music", "visuals", "background", "layout",
+  "sfx", "emphasis", "emoji"];
+async function loadPresets(force = false) {
+  if (!S.presets || force) { try { S.presets = await get("/api/presets"); } catch { S.presets = S.presets || {}; } }
+  return S.presets;
+}
+async function drawPresets() {
+  if (!$("#presets")) return;
+  const items = await loadPresets();
+  const box = $("#presets");  // the form may have been redrawn, or the page left, while presets loaded
+  if (!box) return;
+  const names = Object.keys(items);
+  box.innerHTML = `<span class="lbl">Presets</span>
+    ${names.map(n => `<span class="preset"><button type="button" class="btn sm" data-preset="${esc(n)}" title="Apply this look, voice and format">${esc(n)}</button><button type="button" class="x" data-preset-del="${esc(n)}" aria-label="Delete preset ${esc(n)}" title="Delete">×</button></span>`).join("")}
+    ${names.length ? "" : `<span class="hint">Save this form's look, voice and format to reuse it in one click.</span>`}
+    <form class="preset-new" id="preset-new"><input type="text" maxlength="40" placeholder="Name, e.g. Space facts" aria-label="Preset name" required><button class="btn sm" type="submit">${I.plus || ""}Save as preset</button></form>`;
+  box.onclick = async e => {
+    const a = e.target.closest("[data-preset]"), d = e.target.closest("[data-preset-del]");
+    if (a) {
+      const p = S.presets[a.dataset.preset] || {};
+      PRESET_KEYS.forEach(k => { if (k in p) S.form[k] = p[k]; });
+      saveForm();
+      drawForm();
+      drawSide();
+      toast(`Applied “${esc(a.dataset.preset)}”.`, "ok", 2500);
+    } else if (d) {
+      if (!confirm(`Delete the preset “${d.dataset.presetDel}”?`)) return;
+      try { S.presets = await post("/api/presets/delete", { name: d.dataset.presetDel }); drawPresets(); } catch (err) { toast(esc(err.message), "bad"); }
+    }
+  };
+  $("#preset-new", box).onsubmit = async e => {
+    e.preventDefault();
+    const name = e.target.querySelector("input").value.trim();
+    if (!name) return;
+    const form = Object.fromEntries(PRESET_KEYS.filter(k => k in S.form).map(k => [k, S.form[k]]));
+    try {
+      S.presets = await post("/api/presets", { name, form });
+      toast(`Saved the preset “${esc(name)}”.`, "ok", 2500);
+      drawPresets();
+    } catch (err) { toast(esc(err.message), "bad"); }
+  };
 }
 
 function currentCreateJob() {
@@ -507,6 +734,7 @@ function drawLive() {
     $("#live-pct", box).textContent = progressText(j);
     $("#live-msg", box).textContent = j.message || "";
     $("#live-bar", box).style.width = Math.min(100, j.pct) + "%";
+    $("#live-bar", box).parentElement.classList.toggle("busy", !j.pct);
     $("#live-log", box).textContent = j.log.slice(-8).join("\n");
     return;
   }
@@ -518,12 +746,12 @@ function drawLive() {
     <h3>${esc(r.title || j.label)}</h3>
     ${running ? `<div class="timeline" data-n="${STAGES.length}">${STAGES.map(([k, label], n) => `<span class="${n < idx ? "done" : n === idx ? "now" : ""}" title="${label}">${label}</span>`).join("")}</div>
       <div class="stage-name"><b>${esc(name)}</b><span id="live-pct">${esc(progressText(j))}</span></div>
-      <div class="pbar"><i id="live-bar" data-w="${j.pct}"></i></div>
+      <div class="pbar${!j.pct && j.status === "running" ? " busy" : ""}"><i id="live-bar" data-w="${j.pct}"></i></div>
       <p class="hint" id="live-msg">${esc(j.message || "")}</p>` : ""}
     ${j.status === "done" && r.id ? `<div class="actions"><button class="btn primary sm" type="button" data-open="${r.id}">${I.play}Watch</button>
       ${r.score != null ? `<span class="chip ${r.score >= 75 ? "ok" : r.score >= 55 ? "accent" : "bad"}">Retention score ${r.score}</span>` : ""}
       <span class="chip">${esc(r.status)}</span>${(r.variants || []).map(v => `<span class="chip ${v.ok ? "ok" : "bad"}">${esc(v.language)} ${v.ok ? "✓" : "✗"}</span>`).join("")}</div>` : ""}
-    ${j.status === "failed" ? `<div class="err">${esc(r.error || j.message)}</div>` : ""}
+    ${j.status === "failed" ? errBox(r.error || j.message) : ""}
     ${running ? `<pre class="log" id="live-log">${esc(j.log.slice(-8).join("\n"))}</pre>` : ""}
   </section>`;
   paint(box);
@@ -635,6 +863,12 @@ function viewLibrary() {
   ${head("library", "Library", "Everything you have made. Open a video to watch it, edit and re-render it, publish it or delete it.")}
   <div class="toolbar">${seg("lib", [["", "All"], ["rendered", "Ready"], ["scheduled", "Scheduled"], ["uploaded", "Uploaded"], ["queued", "Queued"], ["failed", "Failed"]], S.lib.status)}
     <input type="search" id="lib-q" placeholder="Search titles" value="${esc(S.lib.q)}" aria-label="Search"></div>
+  <div class="toolbar sub-bar">
+    <label class="inline">Sort ${sel("lib_sort", [["new", "Newest"], ["old", "Oldest"], ["score", "Best score"], ["views", "Most views"], ["long", "Longest"]], S.lib.sort)}</label>
+    <label class="inline">Format <span id="lib-style-box">${sel("lib_style", [["", "All formats"]], "")}</span></label>
+    <span class="grow"></span>
+    <span id="bulk" class="bulk"></span>
+  </div>
   <div class="lib" id="lib"></div>`;
   $(".toolbar").addEventListener("click", e => {
     const b = e.target.closest("[data-seg]");
@@ -643,6 +877,23 @@ function viewLibrary() {
     $$("[data-seg=lib]").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.v === S.lib.status)));
     drawLibrary();
   });
+  $(".sub-bar").addEventListener("change", e => {
+    if (e.target.dataset.f === "lib_sort") S.lib.sort = e.target.value;
+    else if (e.target.dataset.f === "lib_style") S.lib.style = e.target.value;
+    else return;
+    store.set("lib", { sort: S.lib.sort, style: S.lib.style });
+    drawLibrary();
+  });
+  $("#lib").addEventListener("click", e => {
+    const c = e.target.closest("[data-pick]");
+    if (!c) return;
+    const id = +c.dataset.pick;
+    S.lib.picked.has(id) ? S.lib.picked.delete(id) : S.lib.picked.add(id);
+    c.setAttribute("aria-pressed", String(S.lib.picked.has(id)));
+    drawBulk();
+  });
+  S.lib.picking = false;
+  S.lib.picked.clear();
   let t;
   $("#lib-q").oninput = e => { clearTimeout(t); t = setTimeout(() => { S.lib.q = e.target.value; drawLibrary(); }, 200); };
   drawLibrary();
@@ -655,13 +906,24 @@ async function drawLibrary() {
   if (!box) return;
   let vs;
   try { vs = await get(`/api/videos?status=${encodeURIComponent(S.lib.status)}&q=${encodeURIComponent(S.lib.q)}`); } catch (e) { box.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const styles = [...new Set(vs.map(v => v.style).filter(Boolean))].sort();
+  const sb = $("#lib-style-box");
+  if (sb) sb.innerHTML = sel("lib_style", [["", "All formats"], ...styles.map(x => [x, x])], S.lib.style);
+  if (S.lib.style) vs = vs.filter(v => v.style === S.lib.style);
+  // ids grow with time, so they order by age (created is a date string)
+  const by = { new: v => -v.id, old: v => v.id, score: v => -(v.score ?? -1), views: v => -(v.views ?? -1), long: v => -(v.duration || 0) }[S.lib.sort] || (v => -v.id);
+  vs.sort((a, b) => by(a) - by(b) || b.id - a.id);
+  S.lib.shown = vs;
+  for (const id of [...S.lib.picked]) if (!vs.some(v => v.id === id)) S.lib.picked.delete(id);
+  drawBulk();
   if (!vs.length) {
-    box.innerHTML = S.lib.status || S.lib.q ? empty("NO MATCH", "Nothing matches", "Try another filter or search.")
+    box.innerHTML = S.lib.status || S.lib.q || S.lib.style ? empty("NO MATCH", "Nothing matches", "Try another filter or search.")
       : empty("EMPTY REEL", "No videos yet", `<a href="#create">Make your first Short</a> and it shows up here.`);
     return;
   }
+  const pick = S.lib.picking;
   box.innerHTML = vs.map(v => `
-    <button class="vcard" type="button" data-open="${v.id}">
+    <button class="vcard${pick ? " picking" : ""}" type="button" ${pick ? `data-pick="${v.id}" aria-pressed="${S.lib.picked.has(v.id)}"` : `data-open="${v.id}"`}>${pick ? `<span class="tick">${I.check}</span>` : ""}
       <div class="thumb">${v.has_cover ? `<img src="/files/${v.id}/cover.jpg" alt="" loading="lazy">` : `<div class="ph">${v.status === "failed" ? "failed" : "no frame"}</div>`}
         <div class="tl"><span class="chip ${STATUS_CHIP[v.status] || ""}">${esc(v.status)}</span>${v.score != null ? `<span class="chip">${v.score}</span>` : ""}</div>
         ${v.duration ? `<span class="dur">${fmtSec(v.duration)}</span>` : ""}</div>
@@ -669,6 +931,50 @@ async function drawLibrary() {
         <b>${esc(shortTitle(v.title) || "(untitled)")}</b>
         <span class="sub">${ago(v.created)}${v.parent_id ? " · translation" : ""}${v.views != null ? ` · ${fmtNum(v.views)} views` : ""}</span></div>
     </button>`).join("");
+}
+
+function drawBulk() {
+  const box = $("#bulk");
+  if (!box) return;
+  const n = S.lib.picked.size, all = (S.lib.shown || []).length;
+  box.innerHTML = !S.lib.picking ? (all ? `<button class="btn sm" type="button" data-bulk="start">${I.check}Select</button>` : "")
+    : `<span class="muted">${n} selected</span>
+       <button class="btn ghost sm" type="button" data-bulk="all">${n === all ? "None" : "All"}</button>
+       <button class="btn primary sm" type="button" data-bulk="publish"${n && S.info.upload ? "" : " disabled"}${S.info.upload ? "" : ` title="Publishing is off in Settings (UPLOAD=false)"`}>${I.upload}Publish</button>
+       <button class="btn sm danger" type="button" data-bulk="delete"${n ? "" : " disabled"}>${I.trash}Delete</button>
+       <button class="btn ghost sm" type="button" data-bulk="done">Done</button>`;
+  box.onclick = async e => {
+    const b = e.target.closest("[data-bulk]");
+    if (!b) return;
+    const what = b.dataset.bulk, ids = [...S.lib.picked];
+    if (what === "start" || what === "done") { S.lib.picking = what === "start"; S.lib.picked.clear(); return drawLibrary(); }
+    if (what === "all") { n === all ? S.lib.picked.clear() : S.lib.shown.forEach(v => S.lib.picked.add(v.id)); return drawLibrary(); }
+    if (what === "publish") {
+      const ready = ids.filter(id => (S.lib.shown.find(v => v.id === id) || {}).video);
+      for (const id of ready) await post("/api/upload/" + id).catch(() => {});
+      toast(`${ready.length} upload${ready.length === 1 ? "" : "s"} queued${ready.length < ids.length ? ` (${ids.length - ready.length} had no video file)` : ""}. <a href="#queue">Follow them in the Queue</a>`, "info");
+      tick();
+    }
+    if (what === "delete") {
+      if (!confirm(`Delete ${ids.length} video${ids.length === 1 ? "" : "s"} and their folders from your computer? Nothing is removed from YouTube or other sites. This can't be undone.`)) return;
+      let ok = 0;
+      for (const id of ids) { try { if ((await post(`/api/videos/${id}/delete`)).ok) ok++; } catch { /* keep going */ } }
+      toast(`Deleted ${ok} video${ok === 1 ? "" : "s"}.`, ok === ids.length ? "ok" : "bad");
+    }
+    S.lib.picking = false;
+    S.lib.picked.clear();
+    drawLibrary();
+  };
+}
+
+async function copyText(text, what) {
+  try { await navigator.clipboard.writeText(text); toast(`${what} copied.`, "ok", 1800); }
+  catch {  // older browsers, or a page not on localhost/https
+    const t = document.createElement("textarea");
+    t.value = text; document.body.append(t); t.select();
+    try { document.execCommand("copy"); toast(`${what} copied.`, "ok", 1800); } catch { toast("Couldn't copy: select the text and copy it.", "bad"); }
+    t.remove();
+  }
 }
 
 function publishTo() {
@@ -694,6 +1000,7 @@ function postsHtml(published) {
   }).join("")}</div>`;
 }
 
+const hashtags = tags => (tags || []).map(t => String(t).replace(/[^\p{L}\p{N}_]+/gu, "")).filter(Boolean).map(t => "#" + t);
 async function openVideo(id) {
   let v;
   try { v = await get("/api/videos/" + id); } catch (e) { return toast(esc(e.message), "bad"); }
@@ -704,7 +1011,7 @@ async function openVideo(id) {
     <button class="btn ghost close" type="button" data-close aria-label="Close">${I.x}</button>
     <div class="player">${v.video ? `<video src="/files/${id}/${esc(v.video)}" controls playsinline preload="metadata"${v.has_cover ? ` poster="/files/${id}/cover.jpg"` : ""}></video>`
       : v.has_cover ? `<img src="/files/${id}/cover.jpg" alt="">` : empty("NO FILE", "The video file is gone", v.youtube_id ? "It lives on YouTube now." : "")}
-      <div class="actions">${v.video ? `<a class="btn sm" href="/files/${id}/${esc(v.video)}?download=1">${I.dl}MP4</a>` : ""}${v.has_srt ? `<a class="btn sm" href="/files/${id}/captions.srt?download=1">${I.dl}Captions</a>` : ""}</div>
+      <div class="actions">${v.video ? `<a class="btn sm primary" href="/files/${id}/kit.zip" title="The video, cover, captions and post.txt in one ZIP" download>${I.dl}Post kit</a><a class="btn sm" href="/files/${id}/${esc(v.video)}?download=1">${I.dl}MP4</a>` : ""}${v.has_cover ? `<a class="btn sm" href="/files/${id}/cover.jpg?download=1">${I.dl}Cover</a>` : ""}${v.has_srt ? `<a class="btn sm" href="/files/${id}/captions.srt?download=1">${I.dl}Captions</a>` : ""}</div>
     </div>
     <div>
       <p class="eyebrow"><b>#${String(id).padStart(3, "0")}</b>Video</p>
@@ -729,10 +1036,23 @@ async function openVideo(id) {
         <dt>Made</dt><dd>${esc(new Date(v.created_at).toLocaleString())}</dd>
         <dt>Folder</dt><dd class="mono" title="${esc(v.folder || "")}">${esc((v.folder || "").split(/[\\/]/).slice(-2).join("/"))}</dd>
       </dl>
+      <div class="copy-row"><span class="lbl">Copy for posting</span>
+        <button class="btn sm" type="button" data-copy="title">${I.copy}Title</button>
+        ${v.description ? `<button class="btn sm" type="button" data-copy="description">${I.copy}Description</button>` : ""}
+        ${hashtags(v.tags).length ? `<button class="btn sm" type="button" data-copy="hashtags">${I.copy}Hashtags</button>` : ""}
+        <button class="btn sm" type="button" data-copy="all">${I.copy}Everything</button></div>
       ${v.description ? `<div class="desc">${esc(v.description)}</div>` : ""}
       ${v.tags && v.tags.length ? `<div class="chips">${v.tags.map(t => `<span class="chip">${esc(t)}</span>`).join("")}</div>` : ""}
     </div>`;
   paint(panel);
+  panel.onclick = e => {
+    const c = e.target.closest("[data-copy]");
+    if (!c) return;
+    const tags = hashtags(v.tags).join(" ");
+    const text = { title: shortTitle(v.title) || v.title, description: v.description || "", hashtags: tags,
+      all: [shortTitle(v.title) || v.title, v.description, tags].filter(Boolean).join("\n\n") }[c.dataset.copy];
+    copyText(text, { title: "Title", description: "Description", hashtags: "Hashtags", all: "Title, description and hashtags" }[c.dataset.copy]);
+  };
   $("#drawer").hidden = false;
   document.body.style.overflow = "hidden";
   const up = $("#d-up");
@@ -764,8 +1084,48 @@ function closeDrawer() {
 // ------------------------------------------------------------------ QUEUE
 const openLogs = new Set();
 function viewQueue() {
-  $("#main").innerHTML = `${head("queue", "Queue", "Jobs run one at a time, in order. Each shows its live stage, time left and log.")}<div class="jobs" id="jobs"></div>`;
+  $("#main").innerHTML = `${head("queue", "Queue", "Videos run one at a time, in order; model downloads and speed tests run alongside them. Each job shows its live stage, time left and log.",
+    `<label class="switch"><input type="checkbox" id="notify"${notifyOn() ? " checked" : ""}><span>Notify me<small>when a video is done</small></span></label>`)}<section class="card autopilot" id="autopilot"></section><div class="jobs" id="jobs"></div>`;
+  drawAutopilot();
   drawJobs();
+  $("#notify").onchange = async e => { e.target.checked = await setNotify(e.target.checked); };
+}
+function when(ts) {
+  if (!ts) return "";
+  const d = new Date(ts * 1000), now = new Date();
+  const s = Math.round(ts - Date.now() / 1000);
+  if (s <= 60) return "in a moment";
+  const t = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return d.toDateString() === now.toDateString() ? `at ${t}` : `tomorrow at ${t}`;
+}
+async function drawAutopilot() {
+  if (!$("#autopilot")) return;
+  let a;
+  try { [a] = await Promise.all([get("/api/autopilot"), loadPresets()]); } catch { a = null; }
+  const box = $("#autopilot");  // the page may have been left or redrawn meanwhile
+  if (!box) return;
+  if (!a) { box.hidden = true; return; }
+  const presets = Object.keys(S.presets || {});
+  box.innerHTML = `${sh("AP", "Autopilot", a.on ? `<span class="chip ok">on · ${a.made_today}/${a.per_day} today</span>` : `<span class="chip">off</span>`)}
+    <p class="hint">While the Studio is open, it makes a video every few hours: the oldest idea in your <a href="#ideas">queue</a>, or a fresh topic from your niches when the queue is empty.${a.on && a.next_at ? ` <b>Next video ${esc(when(a.next_at))}.</b>` : ""}</p>
+    <div class="ap-row">
+      <label class="switch"><input type="checkbox" data-ap="on"${a.on ? " checked" : ""}><span>Autopilot<small>${a.on ? "Running" : "Off"}</small></span></label>
+      <div class="field"><label>Every</label>${sel("ap_every", [[0.5, "30 minutes"], [1, "hour"], [2, "2 hours"], [3, "3 hours"], [4, "4 hours"], [6, "6 hours"], [8, "8 hours"], [12, "12 hours"], [24, "day"]].map(([v, t]) => [String(v), t]), String(a.every_hours))}</div>
+      <div class="field"><label>At most per day</label><input type="number" min="1" max="48" data-ap="per_day" value="${a.per_day}"></div>
+      <div class="field"><label>Preset</label>${sel("ap_preset", [["", "Settings defaults"], ...presets.map(n => [n, n])], a.preset)}</div>
+      <label class="switch"><input type="checkbox" data-ap="upload"${a.upload ? " checked" : ""}${S.info.upload ? "" : " disabled"}><span>Publish<small>${S.info.upload ? publishTo() : "off in Settings (UPLOAD=false)"}</small></span></label>
+    </div>`;
+  const send = async body => {
+    try { await post("/api/autopilot", body); drawAutopilot(); if (body.on) toast("Autopilot is on. The first video starts now.", "ok"); }
+    catch (err) { toast(esc(err.message), "bad"); drawAutopilot(); }
+  };
+  box.onchange = e => {
+    const el = e.target;
+    if (el.dataset.ap === "on" || el.dataset.ap === "upload") send({ [el.dataset.ap]: el.checked });
+    else if (el.dataset.ap === "per_day") send({ per_day: +el.value });
+    else if (el.dataset.f === "ap_every") send({ every_hours: +el.value });
+    else if (el.dataset.f === "ap_preset") send({ preset: el.value });
+  };
 }
 function drawJobs() {
   const box = $("#jobs");
@@ -781,16 +1141,16 @@ function drawJobs() {
     const stage = (STAGES.find(([k]) => k === j.stage) || [0, j.stage])[1];
     return `<div class="job ${j.status}">
       <div class="job-top"><span class="jid">#${String(j.id).padStart(3, "0")}</span><span class="kind">${KIND_ICON[j.kind] || I.film}</span>
-        <div class="t"><b>${esc(r.title || j.label)}</b><small><span class="status-pill ${j.status}">${j.status}</span>${running && stage ? ` · ${esc(stage)}` : ""}${running ? ` · ${esc(progressText(j))}` : ""}${running && j.message ? ` · ${esc(j.message)}` : ""}${took != null ? ` · ${fmtSec(took)}` : ""}</small></div>
+        <div class="t"><b>${esc(r.title || j.label)}</b><small><span class="status-pill ${j.status}">${j.status}</span>${running && stage ? ` · ${esc(stage)}` : ""}${running ? ` · ${esc(progressText(j))}` : ""}${(running || (j.status === "done" && LOCAL_KINDS.has(j.kind))) && j.message ? ` · ${esc(j.message)}` : ""}${took != null ? ` · ${fmtSec(took)}` : ""}</small></div>
         <span class="acts">${j.status === "queued" || running ? `<button class="btn ghost sm" type="button" data-cancel="${j.id}">Cancel</button>` : ""}
         ${j.status === "done" && r.id ? `<button class="btn sm" type="button" data-open="${r.id}">${I.play}Watch</button>` : ""}
         ${j.status === "done" && j.kind === "draft" ? `<a class="btn sm" href="#create">${I.pen}Edit</a>` : ""}
         <button class="btn ghost sm" type="button" data-log="${j.id}">${open ? "Hide log" : "Log"}</button></span>
       </div>
-      ${running ? (() => { const idx = STAGES.findIndex(([k]) => k === j.stage);
+      ${running && !LOCAL_KINDS.has(j.kind) ? (() => { const idx = STAGES.findIndex(([k]) => k === j.stage);
         return `<div class="timeline">${STAGES.map(([k, label], n) => `<span class="${n < idx ? "done" : n === idx ? "now" : ""}">${label}</span>`).join("")}</div>`; })() : ""}
-      ${j.status !== "cancelled" ? `<div class="pbar"><i data-w="${j.status === "failed" ? 100 : j.pct}"></i></div>` : ""}
-      ${r.error ? `<div class="err">${esc(r.error)}</div>` : ""}
+      ${j.status !== "cancelled" ? `<div class="pbar${running && !j.pct ? " busy" : ""}"><i data-w="${j.status === "failed" ? 100 : j.pct}"></i></div>` : ""}
+      ${r.error ? errBox(r.error) : ""}
       ${r.clips ? `<div class="chips">${r.clips.map(c => `<span class="chip ${c.ok ? "ok" : "bad"}"${c.id ? ` data-open="${c.id}"` : ""}${c.reason ? ` title="${esc(c.reason)}"` : ""}>${esc(shortTitle(c.title) || "clip")}${c.score != null ? ` · <b>${c.score}</b>` : ""}</span>`).join("")}</div>` : ""}
       ${open ? `<pre class="log" data-id="${j.id}">${esc(j.log.join("\n")) || "…"}</pre>` : ""}
     </div>`;
@@ -918,6 +1278,22 @@ function calibrationCard(c) {
   </section>`;
 }
 
+// What the app has done for this channel. A finished Short takes about 45 minutes by hand (script, voice,
+// footage, captions, edit, export), so that is the saving counted; the page says so.
+const HAND_MIN = 45;
+function yourNumbers(i) {
+  const mins = (i.seconds || 0) / 60, saved = i.total * HAND_MIN / 60;
+  const fmtH = h => h >= 10 ? fmtNum(Math.round(h)) : h.toFixed(1).replace(/\.0$/, "");
+  return `<section class="card numbers">${sh("02", "Your numbers")}
+    <div class="kpis">
+      <div class="kpi"><small>Minutes of video</small><b>${mins >= 10 ? fmtNum(Math.round(mins)) : mins.toFixed(1).replace(/\.0$/, "")}</b></div>
+      <div class="kpi"><small>Editing hours saved</small><b>${fmtH(saved)}</b></div>
+      <div class="kpi"><small>Formats used</small><b>${fmtNum(i.formats || 0)}</b></div>
+    </div>
+    <p class="hint">Hours saved counts about ${HAND_MIN} minutes of writing, voicing, finding footage, captioning and editing per video. ${saved >= 1 ? `<a href="https://github.com/Chamanrajragu/purffle-shorts" target="_blank" rel="noopener">Tell other creators</a> with a star.` : ""}</p>
+  </section>`;
+}
+
 async function viewChannel() {
   const main = $("#main");
   if (!main.innerHTML.trim()) main.innerHTML = head("channel", "Channel", "") + empty("LOADING", "Reading your channel…", "");
@@ -929,13 +1305,14 @@ async function viewChannel() {
   const top = Math.max(1, ...ch.by_style.map(s => s.avg_views));
   main.innerHTML = `
   ${head("channel", "Channel", `How your uploads are doing${ch.synced ? `, with stats from ${ago(ch.synced)}` : ""}.`, `<button class="btn" id="sync" type="button">${I.refresh}Refresh stats</button>`)}
-  ${i.learn_from_stats ? "" : `<div class="banner">${I.spark}<p>Set <span class="mono">LEARN_FROM_STATS=true</span> in .env and new scripts will learn from what performs best here. Add <span class="mono">YOUTUBE_API_KEY</span> (or run <span class="mono">purffle-shorts auth</span> again) so stats can be read.</p></div>`}
+  ${i.learn_from_stats ? "" : `<div class="banner">${I.spark}<p>Turn on <b>Learn from my stats</b> and new scripts will learn from what performs best here. Add a YouTube Data API key (or run <span class="mono">purffle-shorts auth</span> again) so stats can be read.</p><a class="btn sm" href="#settings/publishing">Open settings</a></div>`}
   <div class="kpis">
     <div class="kpi"><small>Videos made</small><b>${fmtNum(i.total)}</b></div>
     <div class="kpi"><small>On YouTube</small><b>${fmtNum(live)}</b></div>
     <div class="kpi"><small>Total views</small><b>${fmtNum(i.views)}</b></div>
     <div class="kpi"><small>Ideas queued</small><b>${fmtNum(i.ideas)}</b></div>
   </div>
+  ${i.total ? yourNumbers(i) : ""}
   ${ch.calibration && ch.calibration.videos ? calibrationCard(ch.calibration) : ""}
   ${ch.videos.length ? `<div class="grid2">
     <section class="card">${sh("03", "Average views by format")}${ch.by_style.map(s => `<div class="hbar"><span>${esc(s.style)}</span><span class="track"><i data-w="${100 * s.avg_views / top}"></i></span><span class="num">${fmtNum(s.avg_views)}</span></div>`).join("")}</section>
@@ -949,6 +1326,26 @@ async function viewChannel() {
 }
 
 // ------------------------------------------------------------------ SYSTEM
+// Where each setup check is fixed in the Studio itself
+function fixLink(label) {
+  const l = label.toLowerCase();
+  if (l.startsWith("footage") || l.startsWith("visual source")) return ["#settings/footage", "Add a key"];
+  if (l === "llm") return ["#local", "Set up a model"];
+  if (l === "voice") return ["#settings/voice", "Voice settings"];
+  if (l.startsWith("youtube") || l.startsWith("publishing")) return ["#settings/publishing", "Publishing settings"];
+  if (l.startsWith("clipping")) return ["#local", "Offline transcription"];
+  return null;
+}
+// A failed job's error, with a link to where it is fixed when the cause is a setup problem
+function errBox(text) {
+  const l = (text || "").toLowerCase();
+  const fix = /faster.?whisper|transcri/.test(l) ? ["#local", "Set up transcription"]
+    : /ollama|no llm|api key for|openai|anthropic|gemini|groq|llm/.test(l) ? ["#local", "Set up a model"]
+    : /pexels|pixabay|footage|stock/.test(l) ? ["#settings/footage", "Add a footage key"]
+    : /voice|kokoro|elevenlabs|tts/.test(l) ? ["#settings/voice", "Voice settings"]
+    : /youtube|client_secret|credentials|token|upload/.test(l) ? ["#settings/publishing", "Publishing settings"] : null;
+  return `<div class="err">${esc(text)}${fix ? ` <a class="fix" href="${fix[0]}">${fix[1]} →</a>` : ""}</div>`;
+}
 async function viewSystem() {
   const main = $("#main");
   main.innerHTML = `${head("system", "System", "Setup checks, settings and ways to drive PurffleShorts from other tools.")}<div id="sys">${empty("RUNNING CHECKS", "Checking your setup…", "")}</div>`;
@@ -959,8 +1356,9 @@ async function viewSystem() {
   const mcp = JSON.stringify({ mcpServers: { "purffle-shorts": { command: "purffle-shorts", args: ["mcp"], env: { PURFFLE_HOME: "/path/to/your/purffle/folder" } } } }, null, 2);
   $("#sys").innerHTML = `
   <section class="card">${sh("01", "Setup", bad ? `<span class="chip bad">${bad} to fix</span>` : `<span class="chip ok">all good</span>`)}
-    <div class="checks">${checks.map(c => `<div class="check"><span class="m ${c.ok === true ? "ok" : c.ok === false ? "bad" : "info"}">${c.ok === true ? "✓" : c.ok === false ? "✕" : "·"}</span><span>${esc(c.label)}</span><span>${esc(c.detail)}</span></div>`).join("")}</div>
-    <p class="hint">Settings live in <span class="mono">.env</span> next to where you started the Studio. Restart it after editing.</p></section>
+    <div class="checks">${checks.map(c => { const fix = c.ok === true ? "" : fixLink(c.label);
+      return `<div class="check"><span class="m ${c.ok === true ? "ok" : c.ok === false ? "bad" : "info"}">${c.ok === true ? "✓" : c.ok === false ? "✕" : "·"}</span><span>${esc(c.label)}</span><span>${esc(c.detail)}${fix ? ` <a class="fix" href="${fix[0]}">${fix[1]} →</a>` : ""}</span></div>`; }).join("")}</div>
+    <p class="hint">Change keys and defaults on the <a href="#settings">Settings</a> page: they apply right away. Run models on this computer from <a href="#local">Local AI</a>.</p></section>
   <div class="grid2">
     <section class="card">${sh("02", "Use it from Claude and other AI apps")}
       <p class="muted">Add this to Claude Desktop, Claude Code, Cursor or any MCP client, then ask: “make a 30-second Short about why cats purr”.</p>
@@ -975,6 +1373,201 @@ purffle-shorts doctor</pre></section>
   </div>
   <p class="hint">PurffleShorts ${esc(S.info.version)} · <a href="https://github.com/Chamanrajragu/purffle-shorts" target="_blank" rel="noopener">GitHub</a></p>`;
   $("#copy").onclick = async () => { try { await navigator.clipboard.writeText(mcp); toast("Copied.", "ok", 2000); } catch { toast("Select the text and copy it.", "info"); } };
+}
+
+// ------------------------------------------------------------------ LOCAL AI
+const RENDER = {};
+const LOCAL_KINDS = new Set(["pull", "prefetch", "bench"]);
+const gb = n => n == null ? "" : `${Number(n).toFixed(1)} GB`;
+const TIER = { fast: ["ok", "fast"], balanced: ["blue", "balanced"], quality: ["accent", "best quality"] };
+
+function drawLocalJobs() {
+  const box = $("#local-jobs");
+  if (!box) return;
+  const jobs = S.jobs.filter(j => LOCAL_KINDS.has(j.kind) && (j.status === "running" || j.status === "queued"));
+  box.hidden = !jobs.length;
+  box.innerHTML = jobs.map(j => `<div class="dl-row"><div class="dl-t"><b>${esc(j.label)}</b><small>${j.status === "queued" ? "waiting for the job before it" : esc(j.message || "starting…")}</small></div>
+    <span class="num">${j.status === "running" ? `${j.pct}%` : ""}</span><button class="btn ghost sm" type="button" data-cancel="${j.id}">Cancel</button>
+    <div class="pbar${j.status === "running" && !j.pct ? " busy" : ""}"><i data-w="${j.pct}"></i></div></div>`).join("");
+  paint(box);
+}
+
+async function viewLocal() {
+  const main = $("#main");
+  if (!main.innerHTML.trim()) main.innerHTML = head("local", "Local AI", "") + empty("LOOKING", "Looking for Ollama and offline models…", "");
+  let d;
+  const seq = RENDER.local = (RENDER.local || 0) + 1;  // a slower, older request must not paint over a newer one
+  try { d = await get("/api/local"); } catch (e) { main.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  if (S.view !== "local" || seq !== RENDER.local) return;
+  const o = d.ollama, off = d.offline;
+  const bench = store.get("bench", {});
+  const isDefault = m => d.provider === "ollama" && (d.model === m || d.model + ":latest" === m);
+  const mac = d.platform === "darwin", win = d.platform === "win32";
+  const state = o.running ? `<span class="chip ok">running${o.version ? ` · v${esc(o.version)}` : ""}</span>`
+    : o.installed ? `<span class="chip accent">installed, not running</span>` : `<span class="chip bad">not installed</span>`;
+  main.innerHTML = `
+  ${head("local", "Local AI", "Write, voice and caption videos on this computer: free, private and with no account or API key.",
+    `<button class="btn" id="l-refresh" type="button">${I.refresh}Refresh</button>`)}
+  <div id="local-jobs" class="dl-box" hidden></div>
+  <section class="card">${sh("01", "Ollama · the script writer", state)}
+    ${o.running ? `<div class="stat4">
+        <div><small>Address</small><b class="mono">${esc(o.url)}</b></div>
+        <div><small>Memory</small><b>${o.memory_gb ? gb(o.memory_gb) : "unknown"}</b></div>
+        <div><small>Models</small><b>${o.models.length}</b></div>
+        <div><small>Writing with</small><b>${d.provider === "ollama" ? esc(d.model || "default model") : esc(S.info.llm_ok ? S.info.llm : "nothing yet")}</b></div></div>
+        ${o.loaded.length ? `<p class="hint">In memory now: ${o.loaded.map(m => `<b>${esc(m.name)}</b>${m.vram_gb ? ` (${gb(m.vram_gb)} on the GPU)` : " (on the CPU — slower)"}`).join(", ")}</p>` : ""}`
+    : o.installed ? `<p>Ollama is installed but not running.</p><div class="actions"><button class="btn primary" id="l-start" type="button">${I.play}Start Ollama</button></div>`
+    : `<p>Ollama runs open models like Qwen, Gemma and Llama on your computer. Install it once, then come back here to download a model.</p>
+       <ol class="steps"><li><div><b>Download Ollama</b><small><a href="https://ollama.com/download" target="_blank" rel="noopener">ollama.com/download</a> — ${mac ? "drag it to Applications and open it" : win ? "run the installer" : "<span class=\"mono\">curl -fsSL https://ollama.com/install.sh | sh</span>"}.</small></div></li>
+       <li><div><b>Come back and press Refresh</b><small>Then pick a model below; it downloads with a progress bar.</small></div></li></ol>`}
+  </section>
+
+  ${o.running ? `<section class="card">${sh("02", "Installed models", `${o.models.length} on this computer`)}
+    ${o.models.length ? `<div class="list">${o.models.map(m => {
+      const b = bench[m.name];
+      return `<div class="item model-row"><div class="grow"><b class="mono">${esc(m.name)}</b>
+        <small>${[m.params, m.family, m.quant, gb(m.size_gb)].filter(Boolean).map(esc).join(" · ")}${b ? ` · <b class="speed">${b.tokens_per_second} tok/s ≈ ${b.script_minutes ?? "?"} min per script</b>` : ""}</small></div>
+        ${isDefault(m.name) ? `<span class="chip ok">default</span>` : `<button class="btn sm" type="button" data-default="${esc(m.name)}">${I.check}Use for scripts</button>`}
+        <button class="btn ghost sm" type="button" data-bench="${esc(m.name)}">${I.spark}Speed test</button>
+        <button class="btn ghost sm" type="button" data-rm="${esc(m.name)}" aria-label="Delete ${esc(m.name)}">${I.trash}</button></div>`;
+    }).join("")}</div>` : empty("EMPTY", "No models yet", "Download one of the recommended models below.")}
+  </section>
+
+  <section class="card">${sh("03", "Download a model", o.memory_gb ? `this computer has ${gb(o.memory_gb)}` : "")}
+    <div class="models">${d.recommended.map(m => `<div class="model${m.installed ? " have" : ""}${m.fits ? "" : " big"}">
+      <div class="model-h"><b>${esc(m.label)}</b><span class="chip ${TIER[m.tier][0]}">${TIER[m.tier][1]}</span></div>
+      <span class="mono sub">${esc(m.name)} · ${gb(m.size_gb)}</span>
+      <p>${esc(m.note)}</p>
+      ${m.fits ? "" : `<p class="warn">Wants about ${m.ram} GB of memory: it may be slow here.</p>`}
+      ${m.installed ? `<span class="chip ok">installed</span>` : `<button class="btn sm${m.fits ? " primary" : ""}" type="button" data-pull="${esc(m.name)}">${I.dl}Download</button>`}
+    </div>`).join("")}</div>
+    <div class="field"><label>Any other model from the Ollama library</label>
+      <div class="inline"><input type="text" id="l-custom" placeholder="e.g. phi4-mini or llama3.1:8b" spellcheck="false"><button class="btn" type="button" id="l-pull">${I.dl}Download</button></div>
+      <p class="hint">Browse <a href="https://ollama.com/library" target="_blank" rel="noopener">ollama.com/library</a>. Models of 3–9B parameters suit a laptop; scripts need good JSON output.</p></div>
+  </section>` : ""}
+
+  <section class="card">${sh(o.running ? "04" : "02", "Offline voice and captions")}
+    <div class="list">
+      <div class="item"><div class="grow"><b>Kokoro voice</b><small>Natural English, Spanish, French, Hindi, Japanese and more voices, about ${off.kokoro.size_mb} MB. Use it with Voice engine “Kokoro (local)”.</small></div>
+        ${!off.kokoro.installed ? `<code class="mono cmd">${esc(off.kokoro.install)}</code>` : off.kokoro.downloaded ? `<span class="chip ok">ready</span>` : `<button class="btn sm" type="button" data-prefetch="kokoro">${I.dl}Download</button>`}</div>
+      <div class="item"><div class="grow"><b>faster-whisper transcription</b><small>Word timing for captions and finding the best moments in Clip. Model: <span class="mono">${esc(off.whisper.model)}</span>${Object.entries(off.whisper.models).filter(([, v]) => v).length ? ` · downloaded: ${Object.entries(off.whisper.models).filter(([, v]) => v).map(([k]) => esc(k)).join(", ")}` : ""}.</small></div>
+        ${!off.whisper.installed ? `<code class="mono cmd">${esc(off.whisper.install)}</code>` : off.whisper.downloaded ? `<span class="chip ok">ready</span>` : `<button class="btn sm" type="button" data-prefetch="whisper">${I.dl}Download</button>`}</div>
+      <div class="item"><div class="grow"><b>${esc(off.system.name)}</b><small>Built into your computer: robotic, but needs nothing. Voice engine “System voice”.</small></div>
+        <span class="chip ${off.system.available ? "ok" : "bad"}">${off.system.available ? "ready" : "not found"}</span></div>
+    </div>
+    <p class="hint">Fully offline: a local model here, Kokoro or the system voice, and “My media folder” for footage (or gameplay backgrounds).</p>
+  </section>`;
+  drawLocalJobs();
+  $("#l-refresh").onclick = () => viewLocal();
+  const start = $("#l-start");
+  if (start) start.onclick = async () => {
+    start.disabled = true; start.textContent = "Starting…";
+    try { const r = await post("/api/local/start"); toast(r.ok ? "Ollama is running." : "Ollama didn't start. Open it from your applications.", r.ok ? "ok" : "bad"); }
+    catch (e) { toast(esc(e.message), "bad"); }
+    viewLocal();
+  };
+  const pull = async name => {
+    if (!name) return;
+    try { await post("/api/local/pull", { model: name }); toast(`Downloading <b>${esc(name)}</b>…`, "info"); tick(); }
+    catch (e) { toast(esc(e.message), "bad"); }
+  };
+  const lp = $("#l-pull");
+  if (lp) lp.onclick = () => pull($("#l-custom").value.trim());
+  main.onclick = async e => {
+    const t = e.target.closest("[data-pull],[data-default],[data-bench],[data-rm],[data-prefetch],[data-cancel]");
+    if (!t) return;
+    const ds = t.dataset;
+    try {
+      if (ds.pull) return pull(ds.pull);
+      if (ds.cancel) { await post(`/api/jobs/${ds.cancel}/cancel`); return tick(); }
+      if (ds.prefetch) { await post("/api/local/prefetch", { what: ds.prefetch }); toast("Downloading…", "info"); return tick(); }
+      if (ds.bench) { await post("/api/local/bench", { model: ds.bench }); toast(`Testing <b>${esc(ds.bench)}</b>. The first run loads it into memory.`, "info"); return tick(); }
+      if (ds.default) {
+        await post("/api/local/default", { model: ds.default });
+        [S.info, S.options] = await Promise.all([get("/api/info"), get("/api/options")]);
+        S.form.provider = ""; S.form.model = ""; S.form.offline = false; saveForm();
+        status(); toast(`New scripts are written by <b>${esc(ds.default)}</b>.`, "ok"); return viewLocal();
+      }
+      if (ds.rm && confirm(`Delete ${ds.rm} from this computer? You can download it again later.`)) {
+        const r = await post("/api/local/delete", { model: ds.rm });
+        toast(r.ok ? `Deleted ${esc(ds.rm)}.` : "Couldn't delete it.", r.ok ? "ok" : "bad");
+        return viewLocal();
+      }
+    } catch (err) { toast(esc(err.message), "bad"); }
+  };
+}
+
+// ------------------------------------------------------------------ SETTINGS
+async function viewSettings() {
+  const main = $("#main");
+  if (!main.innerHTML.trim()) main.innerHTML = head("settings", "Settings", "") + empty("LOADING", "Reading .env…", "");
+  let d;
+  const seq = RENDER.settings = (RENDER.settings || 0) + 1;  // a slower, older request must not paint over a newer one
+  try { d = await get("/api/settings"); } catch (e) { main.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  if (S.view !== "settings" || seq !== RENDER.settings) return;
+  const dirty = {};
+  const field = f => {
+    const id = `set-${f.key}`;
+    const src = f.source === "environment" ? `<span class="chip blue" title="Set in your shell; the shell's value wins over .env">shell</span>` : "";
+    const help = `${f.help ? `<p class="hint">${esc(f.help)}</p>` : ""}`;
+    const link = f.link ? ` <a class="getkey" href="${esc(f.link)}" target="_blank" rel="noopener">Get a key</a>` : "";
+    if (f.kind === "bool") {
+      const on = (f.value || f.default || "false").toLowerCase() === "true";
+      return `<label class="switch"><input type="checkbox" data-key="${f.key}"${on ? " checked" : ""}><span>${esc(f.label)} ${src}<small>${esc(f.help || "")}</small></span></label>`;
+    }
+    let input;
+    if (f.kind === "select") {
+      const cur = f.value || f.default || "";
+      input = `<select id="${id}" data-key="${f.key}">${f.options.map(v => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(v)}</option>`).join("")}</select>`;
+    } else if (f.kind === "secret") {
+      input = `<div class="inline"><input id="${id}" type="password" data-key="${f.key}" autocomplete="off" spellcheck="false" placeholder="${f.set ? esc(f.value) : "not set"}">${f.set ? `<button class="btn ghost sm" type="button" data-clear="${f.key}">Remove</button>` : ""}</div>`;
+    } else {
+      input = `<input id="${id}" type="${f.kind === "number" ? "number" : "text"}"${f.kind === "number" ? ' step="any"' : ""} data-key="${f.key}" value="${esc(f.value)}" placeholder="${esc(f.placeholder || f.default || "")}" spellcheck="false">`;
+    }
+    return `<div class="field"><label for="${id}">${esc(f.label)}${f.kind === "secret" && f.set ? ' <span class="chip ok">set</span>' : ""} ${src}${link}</label>${input}${help}</div>`;
+  };
+  main.innerHTML = `
+  ${head("settings", "Settings", "Keys and defaults for every video. Changes are saved to .env and apply to the next job, no restart needed.")}
+  ${d.editable ? "" : `<div class="banner">${I.info}<p><b>Read-only over the network.</b> Set <span class="mono">STUDIO_PASSWORD</span> to change settings from another device.</p></div>`}
+  <nav class="set-nav" aria-label="Setting groups">${d.groups.map(g => `<a href="#settings" data-jump="${g.id}">${esc(g.group)}</a>`).join("")}</nav>
+  ${d.groups.map((g, n) => `<section class="card set-group" id="g-${g.id}">${sh(String(n + 1).padStart(2, "0"), esc(g.group))}
+    ${g.intro ? `<p class="muted intro">${esc(g.intro)}</p>` : ""}
+    <div class="grid2 set-grid">${g.fields.map(field).join("")}</div></section>`).join("")}
+  <p class="hint">Saved to <span class="mono">${esc(d.path)}</span>${d.exists ? "" : " (created on first save)"}. Keys are stored only on this computer and never shown in full here.</p>
+  <div class="savebar" id="savebar" hidden><span id="save-n"></span><button class="btn ghost" type="button" id="set-undo">Discard</button><button class="btn primary" type="button" id="set-save"${d.editable ? "" : " disabled"}>${I.check}Save</button></div>`;
+  const bar = $("#savebar");
+  const mark = () => { const n = Object.keys(dirty).length; bar.hidden = !n; $("#save-n").textContent = `${n} unsaved change${n === 1 ? "" : "s"}`; };
+  main.oninput = e => {
+    const el = e.target.closest("[data-key]");
+    if (!el) return;
+    const f = d.groups.flatMap(g => g.fields).find(x => x.key === el.dataset.key);
+    const v = el.type === "checkbox" ? String(el.checked) : el.value;
+    if (f.kind === "secret" ? !v : v === (f.value || (f.kind === "select" || f.kind === "bool" ? f.default || "" : ""))) delete dirty[f.key];
+    else dirty[f.key] = v;
+    mark();
+  };
+  main.onchange = main.oninput;
+  main.onclick = e => {
+    const c = e.target.closest("[data-clear]");
+    if (c) { dirty[c.dataset.clear] = ""; c.closest(".inline").querySelector("input").placeholder = "will be removed"; c.remove(); mark(); }
+    const j = e.target.closest("[data-jump]");
+    if (j) { e.preventDefault(); $(`#g-${j.dataset.jump}`).scrollIntoView({ behavior: "smooth", block: "start" }); }
+  };
+  const deep = location.hash.split("/")[1];  // #settings/publishing opens that group
+  if (deep && $(`#g-${CSS.escape(deep)}`)) $(`#g-${CSS.escape(deep)}`).scrollIntoView({ block: "start" });
+  $("#set-undo").onclick = () => viewSettings();
+  $("#set-save").onclick = async () => {
+    const btn = $("#set-save");
+    btn.disabled = true;
+    try {
+      const r = await post("/api/settings", { values: dirty });
+      [S.info, S.options] = await Promise.all([get("/api/info"), get("/api/options")]);
+      status();
+      toast(r.changed.length ? `Saved ${r.changed.length} setting${r.changed.length === 1 ? "" : "s"}.` : "Nothing changed.", "ok");
+      main.innerHTML = "";
+      viewSettings();
+    } catch (err) { toast(esc(err.message), "bad"); btn.disabled = false; }
+  };
 }
 
 boot();

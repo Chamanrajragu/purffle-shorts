@@ -191,16 +191,23 @@ def _rgba(hex_color: str, alpha: int = 255) -> tuple[int, int, int, int]:
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), alpha
 
 
-def _parallel(fn, jobs: list) -> None:
-    """Draw overlay states on several threads (Pillow releases the GIL while blurring and compressing)."""
+def _parallel(fn, jobs: list, progress=None) -> None:
+    """Draw overlay states on several threads (Pillow releases the GIL while blurring and compressing).
+    ``progress`` gets the fraction drawn (0..1), called from this thread only."""
     workers = max(1, min(8, (os.cpu_count() or 2), len(jobs)))
+    step = max(1, len(jobs) // 20)
+
+    def tick(i: int) -> None:
+        if progress and (i % step == 0 or i == len(jobs)):
+            progress(i / len(jobs))
     if workers == 1:
-        for job in jobs:
+        for i, job in enumerate(jobs, 1):
             fn(job)
+            tick(i)
         return
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers, thread_name_prefix="overlay") as ex:
-        for _ in ex.map(fn, jobs):
-            pass
+        for i, _ in enumerate(ex.map(fn, jobs), 1):
+            tick(i)
 
 
 def display_word(text: str, uppercase: bool) -> str:
@@ -335,7 +342,7 @@ class PillowCaptions:
         d.rounded_rectangle((x0, y0, x0 + tw + 2 * pad_x, y0 + h), radius=h // 2, fill=_rgba(color, 235))
         d.text((x0 + pad_x, y0 + pad_y + ascent), text, font=font, anchor="ls", fill=(10, 10, 14, 255))
 
-    def build(self, chunks: list[Chunk], total: float, out_dir: Path) -> Path:
+    def build(self, chunks: list[Chunk], total: float, out_dir: Path, progress=None) -> Path:
         """Render every caption state and write an ffconcat playlist spanning ``total`` seconds."""
         out_dir.mkdir(parents=True, exist_ok=True)
         fps = self.s.fps
@@ -382,7 +389,7 @@ class PillowCaptions:
             name, words, k, size, sc, speaker = job
             self.render(words, k, size, sc, speaker).save(out_dir / name, compress_level=1)
 
-        _parallel(draw, jobs)
+        _parallel(draw, jobs, progress)
         if not entries:
             entries.append((blank.name, total))
         lines = ["ffconcat version 1.0"]
@@ -939,12 +946,12 @@ def build_overlays(settings: Settings, chunks: list[Chunk], total: float, hook_t
                    labels: dict[str, str] | None = None, chat: list[ChatMessage] | None = None,
                    contact: str = "", card: tuple[str, str, str] | None = None,
                    card_until: float = 0.0, emphasis: set[str] | None = None,
-                   emoji: list[tuple[float, float, str]] | None = None) -> OverlayPlan:
+                   emoji: list[tuple[float, float, str]] | None = None, progress=None) -> OverlayPlan:
     """labels: speaker name tags over the captions (dialogue). chat: render a text-message screen
     instead of captions (the messages are the captions). card: (community, poster, title) of a post card
     shown until ``card_until`` in place of the hook title (pass captions that start after it).
     emphasis: key words (see utils.emphasis_key) drawn in the style's emphasis colour, as are numbers.
-    emoji: (start, end, emoji) shown above the captions."""
+    emoji: (start, end, emoji) shown above the captions. progress: fraction of caption images drawn (0..1)."""
     emphasis = (set(emphasis or ()) if settings.caption_emphasis else None)
     emoji_plan = emoji_pops(settings, emoji, total, work / "emoji") if emoji and settings.caption_emoji else None
     style = CAPTION_STYLES.get(settings.caption_style, CAPTION_STYLES["bold"])
@@ -988,7 +995,7 @@ def build_overlays(settings: Settings, chunks: list[Chunk], total: float, hook_t
                        emoji=emoji_plan)
     if chunks:
         caps = PillowCaptions(settings, style, font_path, labels, emphasis)
-        plan.captions, plan.captions_y = caps.build(chunks, total, work / "captions"), caps.band_y
+        plan.captions, plan.captions_y = caps.build(chunks, total, work / "captions", progress), caps.band_y
     ui_font, _ = resolve_font(settings, "anton" if settings.caption_uppercase else "sans")
     if hook_until:
         plan.hook = hook_png(settings, ui_font, hook_text, work / "hook.png", y_ratio=hook_y,

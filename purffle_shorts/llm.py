@@ -199,10 +199,20 @@ class OpenAICompatible(Provider):
         if self.name == "openrouter":
             headers["HTTP-Referer"] = "https://github.com/Chamanrajragu/purffle-shorts"
             headers["X-Title"] = "PurffleShorts"
+        local = self.preset.local
+        if local:
+            # A local model on a laptop CPU can take minutes for one script. Streaming keeps the connection
+            # alive while it writes (no read timeout for a slow but working model), shows progress and lets
+            # Cancel stop it between tokens.
+            payload["stream"] = True
+            if self.name == "ollama" and not local_thinking():
+                # "Thinking" models (qwen3, deepseek-r1, gpt-oss...) can spend 10+ minutes reasoning on a CPU
+                # before the first word of the script. A script doesn't need it.
+                payload["reasoning_effort"] = "none"
         try:
-            # A local model on a laptop CPU can take minutes for one script; cloud APIs answer far sooner.
-            timeout = 600 if self.preset.local else 180
-            r = http().post(f"{self.base_url}/chat/completions", json=payload, headers=headers, timeout=timeout)
+            timeout = (10, 300) if local else 180
+            r = http().post(f"{self.base_url}/chat/completions", json=payload, headers=headers, timeout=timeout,
+                            stream=local)
             raise_for_status(r, f"{self}")
         except PermanentError as e:
             fmt = payload.get("response_format", {}).get("type")
@@ -220,6 +230,8 @@ class OpenAICompatible(Provider):
                     self._json_mode = False
                 return self.complete(system, user, schema=schema, temperature=temperature, max_tokens=max_tokens)
             raise
+        if local and "event-stream" in str(getattr(r, "headers", {}).get("Content-Type", "")):
+            return self._read_stream(r)
         data = r.json()
         try:
             content = data["choices"][0]["message"]["content"]
@@ -228,6 +240,48 @@ class OpenAICompatible(Provider):
         if not content:
             raise LLMError(f"{self}: empty reply (finish_reason={data['choices'][0].get('finish_reason')})")
         return content
+
+    def _read_stream(self, r) -> str:
+        """Collect a streamed chat completion (server-sent events), logging progress for slow local models."""
+        import time
+
+        from .utils import check_cancel
+        parts: list[str] = []
+        finish, started, last_log, thinking = None, time.monotonic(), time.monotonic(), 0
+        try:
+            for line in r.iter_lines(decode_unicode=True):
+                check_cancel()
+                if not line or not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    choice = (json.loads(data).get("choices") or [{}])[0]
+                except (ValueError, AttributeError):
+                    continue
+                delta = choice.get("delta") or {}
+                if delta.get("content"):
+                    parts.append(delta["content"])
+                elif delta.get("reasoning") or delta.get("reasoning_content"):
+                    thinking += 1
+                finish = choice.get("finish_reason") or finish
+                if time.monotonic() - last_log > 20:
+                    last_log = time.monotonic()
+                    words = len("".join(parts).split())
+                    log.info("%s: writing… %d words in %ds%s", self, words, time.monotonic() - started,
+                             f" (thinking, {thinking} tokens)" if thinking and not words else "")
+        finally:
+            r.close()
+        content = "".join(parts)
+        if not content.strip():
+            raise LLMError(f"{self}: empty reply (finish_reason={finish})")
+        return content
+
+
+def local_thinking() -> bool:
+    """LOCAL_THINKING=true lets local reasoning models think before they answer (better, much slower)."""
+    return os.getenv("LOCAL_THINKING", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 class AnthropicProvider(Provider):

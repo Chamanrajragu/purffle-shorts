@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -442,6 +443,24 @@ def select_expr(keep: list[tuple[float, float]], fps: int) -> str:
     return "+".join(f"gte(t,{a - h:.4f})*lt(t,{b - h:.4f})" for a, b in keep)
 
 
+def audio_cut(keep: list[tuple[float, float]], fps: int, rate: int = 48000) -> str:
+    """A filter_complex that keeps the same stretches of sound as ``select_expr`` keeps frames of
+    picture, cut on the exact sample where each kept frame starts. Uses atrim and concat, because
+    aselect passes every frame through on some ffmpeg builds (Ubuntu's 8.0)."""
+    def first_frame(x: float) -> int:          # first frame whose start is at or after x - half a frame
+        return math.ceil(x * fps - 0.5 - 1e-9)
+    parts = [(round(first_frame(a) * rate / fps), round(first_frame(b) * rate / fps)) for a, b in keep]
+    parts = [(a, b) for a, b in parts if b > a]
+    n = len(parts)
+    head = f"[0:a]aresample={rate}" + (f",asplit={n}" + "".join(f"[s{i}]" for i in range(n)) + ";" if n > 1 else ",")
+    pieces = [f"{'' if n == 1 else f'[s{i}]'}atrim=start_sample={a}:end_sample={b},asetpts=PTS-STARTPTS"
+              + ("" if n == 1 else f"[c{i}]") for i, (a, b) in enumerate(parts)]
+    if n == 1:
+        return head + pieces[0] + ",aformat=channel_layouts=mono[a]"
+    return (head + ";".join(pieces) + ";" + "".join(f"[c{i}]" for i in range(n))
+            + f"concat=n={n}:v=0:a=1,aformat=channel_layouts=mono[a]")
+
+
 def zoom_plan(words: list[Word], dur: float, *, zoom: float = 1.12, min_seconds: float = 2.0) -> list[tuple[float, float]]:
     """[(from time, zoom)]: the framing punches in and out at sentence starts, at most every
     ``min_seconds``, the hard-cut zoom editors use to keep a talking head lively."""
@@ -505,12 +524,11 @@ def render_clip(settings: Settings, source: Path, plan: ClipPlan, words: list[Wo
                   for w in words if plan.start - 0.05 <= w.start < plan.end]
     keep = keep_ranges(clip_words, dur, F, max_pause=s.clip_max_pause) if s.clip_jump_cuts else [(0.0, dur)]
     cut = len(keep) > 1 or keep[0] != (0.0, dur)
-    picked, sound = "", ""
+    picked, sound = "", None
     if cut:
         expr = select_expr(keep, F)
         picked = f",select='{expr}',setpts=N/({F}*TB)"
-        # audio frames exactly one video frame long, so both are kept or dropped together
-        sound = f"asetnsamples=n={round(48000 / F)}:p=0,aselect='{expr}',asetpts=N/SR/TB,"
+        sound = audio_cut(keep, F)             # the same frames' worth of sound, to the sample
         clip_words = retime(clip_words, keep)
         new_dur = round(sum(b - a for a, b in keep), 3)
         log.info("Jump cuts: %d cut(s), %.1fs -> %.1fs", len(keep) - 1 + (keep[0][0] > 0), dur, new_dur)
@@ -522,7 +540,8 @@ def render_clip(settings: Settings, source: Path, plan: ClipPlan, words: list[Wo
                 "-frames:v", str(max(2, round(dur * F))), str(seg)], label="clip video")
     voice = work / "voice.wav"
     ffmpeg.run(["-ss", f"{plan.start:.3f}", "-i", str(source), "-t", f"{plan.duration + 0.25:.3f}", "-vn",
-                "-af", f"aresample=48000,{sound}aformat=channel_layouts=mono", "-ar", "48000", str(voice)],
+                *(["-filter_complex", sound, "-map", "[a]"] if sound else
+                  ["-af", "aresample=48000,aformat=channel_layouts=mono"]), "-ar", "48000", str(voice)],
                label="clip audio")
     chunks = caption_chunks(clip_words, s.caption_max_words, total=dur)
     overlay = build_overlays(s, chunks, dur, plan.hook_text, work)

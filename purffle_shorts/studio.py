@@ -19,10 +19,11 @@ import os
 import queue
 import re
 import secrets
+import sys
 import threading
 import time
 import webbrowser
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -35,8 +36,9 @@ log = logging.getLogger("purffle")
 WEB = Path(__file__).parent / "web"
 FILES = ("short.mp4", "video.mp4", "cover.jpg", "captions.srt", "metadata.json", "script.json")
 STATIC = {"app.js": "text/javascript; charset=utf-8", "app.css": "text/css; charset=utf-8",
-          "icon.svg": "image/svg+xml"}
+          "icon.svg": "image/svg+xml", "icon.png": "image/png"}
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
+LOCAL_KINDS = {"pull", "prefetch", "bench"}   # Local AI jobs: run on their own worker
 
 
 @dataclass
@@ -55,6 +57,7 @@ class Job:
     started: float | None = None
     finished: float | None = None
     eta_fn: object = field(default=None, repr=False)   # the running Studio's eta(), while it runs
+    stop: threading.Event = field(default_factory=threading.Event, repr=False)  # cancel for side jobs
 
     def public(self, full_log: bool = False) -> dict:
         eta = None
@@ -78,14 +81,15 @@ class _JobLog(logging.Handler):
         self.setFormatter(logging.Formatter("%(asctime)s %(message)s", "%H:%M:%S"))
 
     def emit(self, record: logging.LogRecord) -> None:
-        job = self.studio.current
+        # Local AI jobs run on their own named threads; everything else belongs to the one video job.
+        job = self.studio.lanes.get(record.threadName)
+        if job is None and (record.threadName == "studio-worker" or record.threadName.startswith("ThreadPoolExecutor")):
+            job = self.studio.current
         if job is None:
             return
-        # One job runs at a time, so the worker's own thread pools (voices, footage, segments) belong to it.
-        if record.threadName == "studio-worker" or record.threadName.startswith("ThreadPoolExecutor"):
-            job.log.append(self.format(record))
-            del job.log[:-400]
-            self.studio.changed()
+        job.log.append(self.format(record))
+        del job.log[:-400]
+        self.studio.changed()
 
 
 def _choice(value, allowed, default=None):
@@ -97,11 +101,21 @@ class StudioServer:
         from .pipeline import Studio
         self.settings = settings
         self.studio = Studio(settings)
+        # values that came from the command line, not .env: a save on the Settings page must not undo them
+        try:
+            base = Settings.from_env()
+            self._pinned = {f.name: getattr(settings, f.name) for f in fields(Settings)
+                            if getattr(settings, f.name) != getattr(base, f.name)}
+        except Exception:
+            self._pinned = {}
         # STUDIO_TOKEN fixes the write token, so scripts and tools like n8n can call the API (see docs/api.md)
         self.token = os.getenv("STUDIO_TOKEN", "").strip() or secrets.token_urlsafe(24)
         self.jobs: dict[int, Job] = {}
         self.queue: queue.Queue[Job] = queue.Queue()
+        # Local AI jobs never block a video, and a speed test never waits behind a 5 GB download
+        self.side: dict[str, queue.Queue[Job]] = {"pull": queue.Queue(), "quick": queue.Queue()}
         self.current: Job | None = None
+        self.lanes: dict[str, Job] = {}       # Local AI thread name -> the job it is running
         self._next = 1
         self._lock = threading.Lock()
         self._voices: dict[str, list] = {}
@@ -109,6 +123,12 @@ class StudioServer:
         self._changed = threading.Condition()
         logging.getLogger().addHandler(_JobLog(self))
         threading.Thread(target=self._worker, name="studio-worker", daemon=True).start()
+        for lane in self.side:
+            threading.Thread(target=self._side_worker, args=(lane,), name=f"studio-{lane}", daemon=True).start()
+        self._ap_lock = threading.Lock()
+        threading.Thread(target=self._autopilot_loop, name="studio-autopilot", daemon=True).start()
+        if settings.check_updates:
+            threading.Thread(target=self._update_loop, name="studio-updates", daemon=True).start()
 
     def changed(self) -> None:
         with self._changed:
@@ -132,9 +152,72 @@ class StudioServer:
             for old in sorted(self.jobs)[:-100]:  # keep the list bounded
                 if self.jobs[old].status not in ("queued", "running"):
                     del self.jobs[old]
-        self.queue.put(job)
+        if kind in LOCAL_KINDS:
+            self.side["pull" if kind == "pull" else "quick"].put(job)
+        else:
+            self.queue.put(job)
         self.changed()
         return job
+
+    # ------------------------------------------------------------------ autopilot
+    def busy(self) -> bool:
+        """Is a video-making job waiting or running? (Uploads and stats don't count.)"""
+        return any(j.kind in ("make", "draft", "clip", "plan") and j.status in ("queued", "running")
+                   for j in list(self.jobs.values()))
+
+    def autopilot_tick(self, now: float | None = None) -> Job | None:
+        """Start the next autopilot video if one is due. Called every few seconds by its thread."""
+        from . import autopilot, presets
+        with self._ap_lock:  # the loop and the on switch may both get here at once: start one video, not two
+            return self._autopilot_start(autopilot, presets, now)
+
+    def _autopilot_start(self, autopilot, presets, now: float | None) -> Job | None:
+        h = self.studio.history
+        st = autopilot.load(h)
+        if not autopilot.due(st, self.busy(), now):
+            return None
+        params = dict(presets.load(h).get(st["preset"], {}))
+        has_ideas = bool(h.ideas("pending", 1))
+        if has_ideas:
+            params["source"] = "queue"
+        params["upload"] = bool(st["upload"])
+        params["autopilot"] = True
+        autopilot.mark_started(h, now)
+        label = "Autopilot: next idea from the queue" if has_ideas else "Autopilot: fresh topic from your niches"
+        log.info("%s", label)
+        return self.submit("make", params, label)
+
+    def _autopilot_loop(self) -> None:
+        while True:
+            time.sleep(15)
+            try:
+                self.autopilot_tick()
+            except Exception as e:  # never let the loop die
+                log.warning("Autopilot: %s", e)
+
+    def _update_loop(self) -> None:
+        """Once a day, ask GitHub whether a newer release is out (see updates.py)."""
+        from . import updates
+        time.sleep(5)  # let the Studio open first
+        while True:
+            try:
+                before = updates.available(self.studio.history)
+                updates.check(self.studio.history)       # no-op unless the last check is a day old
+                if updates.available(self.studio.history) != before:
+                    self.changed()                       # the open page refreshes its info and shows the link
+            except Exception as e:
+                log.debug("Update check: %s", e)
+            time.sleep(3600)
+
+    def batch(self, topics: list, form: dict) -> list[int]:
+        """One make job per topic, all with the same settings."""
+        seen, out = set(), []
+        for t in topics:
+            t = " ".join(str(t or "").split())[:300]
+            if t and t.lower() not in seen and len(out) < 50:
+                seen.add(t.lower())
+                out.append(self.submit("make", {**form, "topic": t, "source": None, "url": None}, t[:120]).id)
+        return out
 
     def cancel(self, jid: int) -> bool:
         """Cancel a queued job, or stop the running one (its ffmpeg is stopped at once, the rest at the next
@@ -144,6 +227,11 @@ class StudioServer:
         job = self.jobs.get(jid)
         if job and job.status == "queued":
             job.status, job.finished = "cancelled", time.time()
+            self.changed()
+            return True
+        if job and job.status == "running" and job.kind in LOCAL_KINDS:
+            job.stop.set()
+            job.message = "cancelling…"
             self.changed()
             return True
         if job and job.status == "running" and job is self.current:
@@ -207,7 +295,7 @@ class StudioServer:
 
     def _worker(self) -> None:
         from .pipeline import Studio
-        from .utils import CANCEL, Cancelled
+        from .utils import CANCEL, Cancelled, PermanentError
         while True:
             job = self.queue.get()
             if job.status == "cancelled":
@@ -233,6 +321,9 @@ class StudioServer:
                 job.status = "done" if ok else "failed"
             except Cancelled:
                 job.status, job.message = "cancelled", "cancelled while running"
+            except (PermanentError, ValueError, FileNotFoundError) as e:  # a setup or input problem: no traceback
+                job.status, job.result = "failed", {"error": str(e)}
+                log.warning("Failed: %s", e)
             except Exception as e:
                 job.status, job.result = "failed", {"error": str(e)}
                 log.exception("Studio job %d failed", job.id)
@@ -256,8 +347,11 @@ class StudioServer:
         if job.kind == "plan":
             from .planner import plan_ideas
             niches = [p["niche"].strip()] if str(p.get("niche") or "").strip() else None
+            job.stage, job.message = "script", f"writing ideas with {studio.llm.label if studio.llm else 'the AI'}"
+            self.changed()
             ideas = plan_ideas(studio.llm, s, studio.history, int(p.get("count") or 10), niches)
             job.result = {"ideas": len(ideas)}
+            job.stage, job.pct, job.message = "done", 100, f"{len(ideas)} idea(s) added to the queue"
             return bool(ideas)
         if job.kind == "clip":
             from .clipper import make_clips
@@ -279,6 +373,70 @@ class StudioServer:
                         languages=[str(x)[:8] for x in (langs or [])][:6])
         job.result = _result(r)
         return r.ok
+
+    def _side_worker(self, lane: str) -> None:
+        """Runs Local AI jobs one at a time per lane (downloads; speed tests and prefetches), next to the video
+        worker, so a 5 GB download holds up neither a video nor a speed test."""
+        from .utils import Cancelled
+        while True:
+            job = self.side[lane].get()
+            if job.status == "cancelled":
+                continue
+            job.status, job.started = "running", time.time()
+            self.lanes[threading.current_thread().name] = job
+            self.changed()
+            try:
+                log.info("%s", job.label)
+                job.status = "done" if self._local_job(job, job.params) else "failed"
+                log.info("Done: %s", job.message)
+            except Cancelled:
+                job.status, job.message = "cancelled", "cancelled while running"
+            except Exception as e:
+                job.status, job.result = "failed", {"error": str(e)}
+                log.warning("Studio job %d failed: %s", job.id, e)
+            finally:
+                self.lanes.pop(threading.current_thread().name, None)
+                job.finished = time.time()
+                self.changed()
+
+    def _local_job(self, job: Job, p: dict) -> bool:
+        """Local AI jobs: download an Ollama model, fetch offline voice/whisper files, or speed-test a model."""
+        from . import localai
+        progress = self._progress(job)
+        if job.kind == "pull":
+            if not localai.ollama_status()["running"] and not localai.start_ollama():
+                raise RuntimeError("Ollama is not running. Install it from ollama.com, then start it.")
+            localai.pull(str(p.get("model") or ""), progress, stop=job.stop)
+            job.result = {"model": p.get("model")}
+            job.message = f"{p.get('model')} downloaded"
+        elif job.kind == "prefetch":
+            from .tts import whisper_model
+            name = str(p.get("whisper") or "") or whisper_model()
+            job.result = {"message": localai.prefetch(str(p.get("what") or ""), progress, name)}
+            job.message = job.result["message"]
+        else:
+            progress("test", 10, f"Loading {p.get('model')} and writing a short reply…")
+            job.result = localai.benchmark(str(p.get("model") or ""))
+            mins = job.result.get("script_minutes")
+            job.message = f"{job.result['tokens_per_second']} tokens/s" + (f", a script in ~{mins} min" if mins else "")
+        job.stage, job.pct = "done", 100
+        return True
+
+    def reload(self) -> None:
+        """Pick up a changed .env: new keys, provider and defaults apply to the next job."""
+        from .pipeline import Studio
+        self.settings = Settings.from_env().with_overrides(**self._pinned)
+        self.studio = Studio(self.settings)
+        self._voices = {}
+        self.changed()
+
+    def local(self) -> dict:
+        from . import localai
+        st = localai.ollama_status()
+        return {"ollama": st, "recommended": localai.recommended([m["name"] for m in st["models"]]),
+                "offline": localai.offline_status(os.getenv("WHISPER_MODEL", "auto")),
+                "provider": os.getenv("LLM_PROVIDER", ""), "model": os.getenv("LLM_MODEL", ""),
+                "platform": sys.platform}
 
     # ------------------------------------------------------------------ data
     def videos(self, status: str = "", q: str = "") -> list[dict]:
@@ -329,6 +487,41 @@ class StudioServer:
         p = Path(rec["folder"]) / name
         return p if p.exists() else None
 
+    def post_text(self, vid: int) -> str | None:
+        """The post, ready to paste anywhere the app can't publish to: title, description, hashtags."""
+        rec = self.studio.history.get(vid)
+        if not rec:
+            return None
+        tags = [t for t in json.loads(rec["tags"] or "[]") if str(t).strip()]
+        hashtags = " ".join("#" + re.sub(r"[^\w]+", "", str(t)) for t in tags if re.sub(r"[^\w]+", "", str(t)))
+        parts = [f"TITLE\n{rec['title'] or ''}", f"DESCRIPTION\n{rec['description'] or ''}"]
+        if hashtags:
+            parts.append(f"HASHTAGS\n{hashtags}")
+        return "\n\n".join(parts).strip() + "\n"
+
+    def kit(self, vid: int):
+        """Everything to post one video by hand, in one ZIP: the video, its cover, captions and post.txt.
+        Videos are already compressed, so files are stored, not deflated (fast, same size). Returns an open
+        temporary file (deleted on close) and a download name, or None."""
+        import tempfile
+        import zipfile
+        rec = self.studio.history.get(vid)
+        if not rec or not rec["folder"]:
+            return None
+        folder = Path(rec["folder"])
+        video = Path(rec["video_path"]) if rec["video_path"] else None
+        files = [(f, f.name) for f in ((video if video and video.exists() else None),
+                                        folder / "cover.jpg", folder / "captions.srt") if f and f.exists()]
+        if not files:
+            return None
+        tmp = tempfile.TemporaryFile()
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:
+            for f, name in files:
+                z.write(f, name)
+            z.writestr("post.txt", self.post_text(vid) or "", compress_type=zipfile.ZIP_DEFLATED)
+        tmp.seek(0)
+        return tmp, re.sub(r"[^\w.-]+", "-", folder.name)[:80] + ".zip"
+
     def voices(self, lang: str) -> list[dict]:
         lang = (lang or self.settings.language).lower()[:8]
         if lang not in self._voices:
@@ -343,6 +536,7 @@ class StudioServer:
 
     def info(self) -> dict:
         s = self.settings
+        from . import updates
         from .llm import LLMError, resolve_provider_name
         try:
             llm = f"{resolve_provider_name(s)}{(':' + s.llm_model) if s.llm_model else ''}"
@@ -351,7 +545,8 @@ class StudioServer:
             llm, llm_ok = "not configured", False
         h = self.studio.history
         stats = h.stats()
-        views = sum(r.get("views") or 0 for r in h.recent(1000))
+        rows = h.recent(1000)
+        views = sum(r.get("views") or 0 for r in rows)
         return {"version": __version__, "llm": llm, "llm_ok": llm_ok, "tts": s.tts_engine,
                 "voice": s.tts_voice or "auto", "visuals": s.visual_sources, "upload": s.upload,
                 "privacy": s.privacy, "quota_left": self.studio.quota_left(), "daily_limit": s.daily_upload_limit,
@@ -362,7 +557,11 @@ class StudioServer:
                 "also_languages": s.also_languages, "learn_from_stats": s.learn_from_stats,
                 "publish_to": s.publish_to,
                 "counts": stats, "total": sum(stats.values()), "views": views,
-                "ideas": len(h.ideas("pending")), "channel": s.channel_name}
+                "seconds": round(sum(r.get("duration") or 0 for r in rows), 1),
+                "formats": len({r.get("style") for r in rows if r.get("style")}),
+                "ideas": len(h.ideas("pending")), "channel": s.channel_name,
+                "update": updates.available(h) if s.check_updates else None,
+                "credit_line": s.credit_line}
 
     def options(self) -> dict:
         from .llm import PRESETS, available_providers
@@ -377,7 +576,12 @@ class StudioServer:
                               for n, p in PRESETS.items()],
                 "tts": ["edge", "openai", "elevenlabs", "kokoro", "coqui", "system"],
                 "visuals": ["pexels", "pixabay", "local", "pollinations", "openai-images"],
-                "backgrounds": self.backgrounds()}
+                "backgrounds": self.backgrounds(), "ollama_models": self._ollama_models(),
+                "provider": os.getenv("LLM_PROVIDER", ""), "model": self.settings.llm_model or ""}
+
+    def _ollama_models(self) -> list[str]:
+        from .localai import ollama_status
+        return [m["name"] for m in ollama_status()["models"]]
 
     def backgrounds(self) -> list[dict]:
         """Background videos to offer: BACKGROUND_VIDEO (a file, or every video in that folder) and
@@ -515,6 +719,8 @@ def _handler(app: StudioServer, bound_host: str, password: str | None = None):
                     "Content-Security-Policy": "default-src 'self'; img-src 'self' data: https://i.ytimg.com; "
                                                "media-src 'self'; connect-src 'self'; frame-ancestors 'none'",
                     "X-Frame-Options": "DENY"})
+            if path == "/favicon.ico":  # browsers ask for it whatever the page says
+                return self._send(200, (WEB / "icon.svg").read_bytes(), "image/svg+xml")
             m = re.fullmatch(r"/static/([\w.-]+)", path)
             if m and m.group(1) in STATIC:
                 return self._send(200, (WEB / m.group(1)).read_bytes(), STATIC[m.group(1)])
@@ -549,6 +755,43 @@ def _handler(app: StudioServer, bound_host: str, password: str | None = None):
                 return self._json(app.channel())
             if path == "/api/voices":
                 return self._json(app.voices(params.get("lang", "")))
+            if path == "/api/settings":
+                from . import envfile
+                return self._json({**envfile.current(), "editable": self._settings_editable()})
+            if path == "/api/local":
+                return self._json(app.local())
+            if path == "/api/presets":
+                from . import presets
+                return self._json(presets.load(app.studio.history))
+            if path == "/api/autopilot":
+                from . import autopilot
+                return self._json(autopilot.public(autopilot.load(app.studio.history)))
+            m = re.fullmatch(r"/files/(\d+)/(kit\.zip|post\.txt)", path)
+            if m and m.group(2) == "post.txt":
+                text = app.post_text(int(m.group(1)))
+                return (self._send(200, text.encode("utf-8"), "text/plain; charset=utf-8") if text is not None
+                        else self._send(404, b"not found", "text/plain"))
+            if m:
+                kit = app.kit(int(m.group(1)))
+                if not kit:
+                    return self._send(404, b"not found", "text/plain")
+                tmp, name = kit
+                with tmp:
+                    tmp.seek(0, os.SEEK_END)
+                    size = tmp.tell()
+                    tmp.seek(0)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/zip")
+                    self.send_header("Content-Length", str(size))
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("Content-Disposition", f'attachment; filename="{name}"')
+                    self.end_headers()
+                    try:
+                        while chunk := tmp.read(1 << 16):
+                            self.wfile.write(chunk)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                return None
             m = re.fullmatch(r"/files/(\d+)/([\w.]+)", path)
             if m:
                 f = app.file_for(int(m.group(1)), m.group(2))
@@ -656,7 +899,87 @@ def _handler(app: StudioServer, bound_host: str, password: str | None = None):
             m = re.fullmatch(r"/api/jobs/(\d+)/cancel", path)
             if m:
                 return self._json({"ok": app.cancel(int(m.group(1)))})
+            if path == "/api/settings":
+                return self._save_settings(body.get("values"))
+            if path == "/api/batch":
+                topics = body.get("topics")
+                if isinstance(topics, str):
+                    topics = topics.splitlines()
+                if not isinstance(topics, list) or not any(str(t).strip() for t in topics):
+                    return self._json({"error": "give one topic per line"}, 400)
+                form = {k: v for k, v in body.items() if k not in ("topics", "script")}
+                return self._json({"jobs": app.batch(topics, form)})
+            if path in ("/api/presets", "/api/presets/delete"):
+                from . import presets
+                try:
+                    if path.endswith("/delete"):
+                        return self._json(presets.delete(h, body.get("name")))
+                    return self._json(presets.save(h, body.get("name"), body.get("form") or {}))
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 400)
+            if path == "/api/autopilot":
+                from . import autopilot
+                try:
+                    st = autopilot.update(h, body)
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 400)
+                app.autopilot_tick()   # turned on: the first video starts now, not in 15 seconds
+                app.changed()
+                return self._json(autopilot.public(autopilot.load(h)) if st else {})
+            if path.startswith("/api/local/"):
+                return self._local_post(path.rsplit("/", 1)[1], body)
             self._json({"error": "not found"}, 404)
+
+        def _settings_editable(self) -> bool:
+            # keys can be written from this machine, or over the network only behind STUDIO_PASSWORD
+            return bound_host in LOCAL_HOSTS or bool(password or os.getenv("STUDIO_PASSWORD"))
+
+        def _save_settings(self, values):
+            from . import envfile
+            if not self._settings_editable():
+                return self._json({"error": "Settings can only be changed on this computer, or with "
+                                            "STUDIO_PASSWORD set"}, 403)
+            if not isinstance(values, dict):
+                return self._json({"error": "expected values"}, 400)
+            try:
+                updates = envfile.clean(values)
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
+            if updates:
+                envfile.write(updates)
+                envfile.apply(updates)
+                app.reload()
+            return self._json({"ok": True, "changed": sorted(updates), **envfile.current()})
+
+        def _local_post(self, action: str, body: dict):
+            from . import envfile, localai
+            model = str(body.get("model") or "").strip()
+            if action in ("pull", "delete", "bench", "default") and not localai.valid_model_name(model):
+                return self._json({"error": "give a model name like qwen3.5:4b"}, 400)
+            if action == "pull":
+                return self._json({"job": app.submit("pull", {"model": model}, f"Download {model}").id})
+            if action == "bench":
+                return self._json({"job": app.submit("bench", {"model": model}, f"Speed test: {model}").id})
+            if action == "prefetch":
+                what = _choice(body.get("what"), ("kokoro", "whisper"))
+                if not what:
+                    return self._json({"error": "unknown download"}, 400)
+                label = "Download Kokoro voice" if what == "kokoro" else "Download Whisper model"
+                return self._json({"job": app.submit("prefetch", {"what": what,
+                                                                  "whisper": body.get("whisper") or ""}, label).id})
+            if action == "delete":
+                return self._json({"ok": localai.delete(model)})
+            if action == "start":
+                return self._json({"ok": localai.start_ollama()})
+            if action == "default":
+                if not self._settings_editable():
+                    return self._json({"error": "not allowed from the network"}, 403)
+                updates = {"LLM_PROVIDER": "ollama", "LLM_MODEL": model}
+                envfile.write(updates)
+                envfile.apply(updates)
+                app.reload()
+                return self._json({"ok": True})
+            return self._json({"error": "not found"}, 404)
 
     return H
 
