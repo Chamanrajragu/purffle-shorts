@@ -86,6 +86,7 @@ def test_jump_cuts_keep_picture_and_sound_in_sync(settings, tmp_path):
     s = settings.with_overrides(resolution=(320, 568), fps=30, hook_overlay=False, end_cta="", watermark="none",
                                 progress_bar=False, caption_style="minimal", clip_zoom=False, voice_enhance=False)
     plan = C.ClipPlan(0.0, 8.8, "sync")
+    voice = tmp_path / "clip" / "work" / "voice.wav"
     video, chunks, dur = C.render_clip(s, src, plan, words, tmp_path / "clip", crop="center", src_size=(320, 568))
     assert dur < 5.0                                         # ~6 s of silence was removed
     # luma of each frame and audio level of each 1/30 s, from the finished file
@@ -102,7 +103,8 @@ def test_jump_cuts_keep_picture_and_sound_in_sync(settings, tmp_path):
     def onsets(xs, thr):
         return [i for i in range(1, len(xs)) if xs[i] > thr >= xs[i - 1]]
     v_on, a_on = onsets(frames, 120), onsets(levels, 4000)
-    assert len(v_on) == len(flashes) == len(a_on)
+    peaks = [round(max(levels[i:i + 3])) for i in range(0, len(levels), 3)]      # shown if the counts differ
+    assert len(v_on) == len(flashes) == len(a_on), (v_on, a_on, dur, ffmpeg.duration(voice), peaks)
     assert all(abs(v - a) <= 1 for v, a in zip(v_on, a_on)), (v_on, a_on)   # within one frame
     assert abs(ffmpeg.duration(video) - dur) < 0.1
 
