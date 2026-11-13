@@ -68,6 +68,7 @@
 - `STUDIO_PASSWORD` (HTTP Basic) for a Studio that runs on a server.
 
 ### Fixed
+- **Clips on ffmpeg 8**: jump-cut clips kept their full audio under the shortened picture with Ubuntu's ffmpeg 8.0, whose `aselect` filter lets every frame through. The sound is now cut with `atrim` on the exact sample where each kept frame starts, so it stays in sync on every ffmpeg version.
 - Transcription with faster-whisper 1.2.1 failed under a newer PyAV ("unexpected keyword argument 'metadata_errors'"). Audio is now decoded by PurffleShorts' own ffmpeg and passed to Whisper as samples.
 - A Studio API request could upload even with `UPLOAD=false` in `.env`; that setting is now a hard stop for API jobs too.
 - Studio:
