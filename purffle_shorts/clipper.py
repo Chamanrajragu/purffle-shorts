@@ -435,11 +435,13 @@ def retime(words: list[Word], keep: list[tuple[float, float]]) -> list[Word]:
     return out
 
 
-def select_expr(keep: list[tuple[float, float]], fps: int) -> str:
+def select_expr(keep: list[tuple[float, float]], fps: int, time: str = "t") -> str:
     """An ffmpeg select/aselect expression true for frames in the kept parts. Half a frame of tolerance
-    so a frame that starts exactly on a boundary is decided the same way for picture and sound."""
+    so a frame that starts exactly on a boundary is decided the same way for picture and sound.
+    ``time`` is the expression for a frame's start time: the timestamp ``t`` for video, or ``n/fps``
+    for audio cut into frame-long pieces (ffmpeg 8's aselect can't be trusted with ``t`` there)."""
     h = 0.5 / fps
-    return "+".join(f"gte(t,{a - h:.4f})*lt(t,{b - h:.4f})" for a, b in keep)
+    return "+".join(f"gte({time},{a - h:.4f})*lt({time},{b - h:.4f})" for a, b in keep)
 
 
 def zoom_plan(words: list[Word], dur: float, *, zoom: float = 1.12, min_seconds: float = 2.0) -> list[tuple[float, float]]:
@@ -510,7 +512,9 @@ def render_clip(settings: Settings, source: Path, plan: ClipPlan, words: list[Wo
         expr = select_expr(keep, F)
         picked = f",select='{expr}',setpts=N/({F}*TB)"
         # audio frames exactly one video frame long, so both are kept or dropped together
-        sound = f"asetnsamples=n={round(48000 / F)}:p=0,aselect='{expr}',asetpts=N/SR/TB,"
+        # timed by frame number, not timestamp, so the cut doesn't depend on how ffmpeg stamps them
+        sound = (f"asetnsamples=n={round(48000 / F)}:p=0,aselect='{select_expr(keep, F, f'n/{F}')}',"
+                 "asetpts=N/SR/TB,")
         clip_words = retime(clip_words, keep)
         new_dur = round(sum(b - a for a, b in keep), 3)
         log.info("Jump cuts: %d cut(s), %.1fs -> %.1fs", len(keep) - 1 + (keep[0][0] > 0), dur, new_dur)

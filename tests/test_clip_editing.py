@@ -46,6 +46,7 @@ def test_retime_moves_words_with_the_cuts_and_drops_fillers():
 def test_select_expression_has_half_a_frame_of_tolerance():
     expr = C.select_expr([(0.0, 1.0), (2.0, 3.0)], 25)
     assert expr == "gte(t,-0.0200)*lt(t,0.9800)+gte(t,1.9800)*lt(t,2.9800)"
+    assert C.select_expr([(0.0, 1.0)], 25, "n/25") == "gte(n/25,-0.0200)*lt(n/25,0.9800)"
 
 
 def test_zoom_alternates_at_sentence_starts_and_not_too_often():
