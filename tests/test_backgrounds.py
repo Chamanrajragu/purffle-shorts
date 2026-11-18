@@ -117,3 +117,16 @@ def test_doctor_reports_the_background_and_the_new_editing(settings, tmp_path):
     assert "Footage" not in out                       # a full-screen background needs no stock footage
     assert "emoji" in out["Retention editing"]["detail"] and "es" in out["SEO"]["detail"]
     assert "jump cuts" in out["Clip editing"]["detail"]
+
+
+def test_studio_backgrounds_do_not_scan_the_working_directory_when_unset(settings, tmp_path, monkeypatch):
+    # An empty BACKGROUND_VIDEO is Path("") == ".": scanning it walked the whole cwd (the home folder when
+    # started from there) and hung /api/options, which left every Studio page blank
+    from purffle_shorts.studio import StudioServer
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "stray.mp4").write_bytes(b"x")
+    media = tmp_path / "media"
+    (media / "backgrounds").mkdir(parents=True)
+    (media / "backgrounds" / "parkour.mp4").write_bytes(b"x")
+    app = StudioServer(settings.with_overrides(media_dir=str(media), background_video="", upload=False))
+    assert [b["name"] for b in app.backgrounds()] == ["parkour.mp4"]

@@ -592,7 +592,9 @@ class StudioServer:
         if s.background_video:
             out.append({"path": s.background_video, "name": Path(s.background_video).name + (
                 " (random)" if Path(s.background_video).expanduser().is_dir() else "")})
-        for root in [Path(s.background_video).expanduser(), Path(s.media_dir) / "backgrounds"]:
+        # unset BACKGROUND_VIDEO is Path("") == the working directory: never scan that
+        roots = [Path(s.background_video).expanduser()] if s.background_video else []
+        for root in [*roots, Path(s.media_dir) / "backgrounds"]:
             if not root.is_dir():
                 continue
             for f in sorted(root.rglob("*")):
